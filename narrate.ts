@@ -47,6 +47,16 @@ const lesson = (await lessonFile.json()) as Lesson;
 const steps = lesson.steps ?? [];
 const says = steps.map((step) => (step.say ?? "").trim());
 
+// The voice only depends on the words, so a board edit must not pay for a new recording.
+const stamp = new Bun.CryptoHasher("sha1")
+  .update([flag("engine") ?? config.voice ?? "kokoro", flag("voice") ?? config.elevenlabsVoice ?? "", ...says].join("\u0000"))
+  .digest("hex");
+const stampFile = Bun.file(`${dir}/.narration`);
+if ((await Bun.file(`${dir}/lesson.mp3`).exists()) && (await stampFile.exists()) && (await stampFile.text()).trim() === stamp) {
+  process.stdout.write("words unchanged, reusing the existing voice and timings\n");
+  process.exit(0);
+}
+
 function elevenKey(): string {
   const read = (command: string[]) => {
     const result = Bun.spawnSync(command, { stderr: "ignore" });
@@ -201,6 +211,7 @@ lesson.audio = spoken.file;
 lesson.voice = used;
 lesson.timeline = spoken.timeline.map((t) => Math.round(t * 100) / 100);
 await Bun.write(`${dir}/lesson.json`, JSON.stringify(lesson, null, 2));
+await Bun.write(stampFile, stamp);
 process.stdout.write(
   `wrote one ${Math.round(spoken.seconds)}s narration with ${used} and ${steps.length} cues to ${dir}${used === "elevenlabs" ? `, ${says.join(" ").length} ElevenLabs characters used` : ", free"}\n`,
 );

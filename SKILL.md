@@ -12,8 +12,8 @@ whiteboard, and explain it out loud in plain steps.
 `<skill-dir>` below is the folder this file lives in (the base directory shown when the skill loads).
 Use its absolute path in every command, so the skill works from any folder and any session.
 
-Files: `engine.js` draws (boxes, arrows, logos, thought bubbles, code with circled lines). `point.js` is
-the layer that lets the user circle something on a live page. `listen.ts` runs the local helper and the
+Files: `check.ts` lints a lesson in 20 ms, `engine.js` draws (boxes, arrows, logos, thought bubbles,
+code with circled lines). `point.js` is the layer that lets the user circle something on a live page. `listen.ts` runs the local helper and the
 waiter that wakes you. `explain.js` plays your answer back on their page. `narrate.ts` records the
 voice. `bookmarklet.ts` makes the bookmark. `page.html` is a full-page fallback for drawing over an
 image. Read the ones you need before the first lesson of a session.
@@ -161,8 +161,9 @@ Write `<dir>/lesson.json` in your scratchpad:
 }
 ```
 
-Then `bun <skill-dir>/narrate.ts <dir>` records the voice and times every cue, and
-`bun <skill-dir>/listen.ts lesson <dir>` hands it to the page, which plays it within two seconds.
+Then `bun <skill-dir>/check.ts <dir>` (cheap, 20 ms), `bun <skill-dir>/narrate.ts <dir>` records the
+voice and times every cue, and `bun <skill-dir>/listen.ts lesson <dir>` hands it to the page, which
+plays it within two seconds.
 
 On the page:
 
@@ -292,6 +293,21 @@ before the first step and keep a ledger as you write: the spine, the subject, th
   timeline, a chain). The subject holds the thing being discussed right now. Annotations hold the
   labels and arrows that matter for a step or two. When a fact stops mattering, it stops being drawn; a
   board is not a transcript.
+
+**Check it in milliseconds.** `bun <skill-dir>/check.ts <dir>` reads the lesson and prints what will look
+wrong: an item off the board, a step re-drawing on a spot an earlier step used, two labels on top of
+each other, timeline marks stacked on one side, a cue that isn't in that step's script, a timeline with
+no room for its labels. It takes about 20 ms, so run it instead of rendering. Draw a picture only when
+the layout is unusual (a map, a 3D figure, a photo), and then once.
+
+**Narrate last, and only once.** `narrate.ts` keys the recording to the words themselves: run it again
+after a board edit and it reuses the audio in 30 ms. Only changing `say` pays for a new recording, so
+move board items as often as you like and save the recording for the version you ship.
+
+**Batch the commands.** A reply, a plan and a step are three calls to one helper, so put them in one
+shell line. Posting the lesson and starting the waiter do not depend on each other either: run them in
+the same block. A note should cost about five calls in total: answer, write the lesson, check, narrate,
+send. Every extra round trip is a sentence of silence for the user.
 
 Drawing makes sound: a pen scratch as each stroke draws, a soft thump as a card lands, an eraser
 sweep when a board clears. The user mutes

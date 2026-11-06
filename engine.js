@@ -977,7 +977,7 @@
     (scene.steps || []).forEach((step) => {
       if (step.clear) seen = [];
       (step.items || []).forEach((it) => {
-        if (it.keep || !["box", "text", "icon", "sketch", "image", "person", "bubble"].includes(it.type)) return;
+        if (it.keep || !["box", "text", "icon", "sketch", "image", "person", "bubble", "figure"].includes(it.type)) return;
         if (!Number.isFinite(it.x) || !Number.isFinite(it.y)) return;
         const before = seen.find((s) => s.type === it.type && Math.abs(s.x - it.x) <= SPOT && Math.abs(s.y - it.y) <= SPOT);
         if (before) before.item.drop = true;
