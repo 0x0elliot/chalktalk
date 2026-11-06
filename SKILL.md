@@ -168,6 +168,20 @@ Then one command ships it: `bun <skill-dir>/listen.ts send <dir> --as "<model>"`
 narrates when the words changed (and reuses the recording when they didn't), posts the lesson to the
 page, and puts the waiter back. The page plays it within two seconds. `--dry` stops before posting.
 
+**The fast loop, for anything longer than two steps.** Write the whole script first — that part is what
+makes the lesson good — then ship it while the pictures are still being drawn:
+
+1. Put the full script in the head of the lesson and only step one in the file: `"stream": true`, step
+   one with its board, nothing else.
+2. `listen.ts send <dir> --stream --as "<model>"`. It records step one (a second), posts it, and leaves
+   a watcher that records any step that has no clip yet.
+3. Append step two, then three, to the same file as you draw them. The watcher records each one, the
+   page picks them up between steps, and only the boards are rebuilt — the model on screen never moves.
+4. No `done` flag is needed: a lesson whose steps all have clips and has stopped changing is finished.
+
+That gets the first drawing on screen in about a fifth of the time, without thinning the lesson. If the
+whole file is already written when you send, skip `--stream`; a plain send is one step simpler.
+
 On the page:
 
 - `highlight` marks an element by CSS `selector` (an `aria-label` selector from `targets` is the most
