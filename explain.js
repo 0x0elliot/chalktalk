@@ -352,42 +352,145 @@
       if (b.left < c.right && c.left < b.right && b.top < c.bottom && c.top < b.bottom) column.style.top = `${Math.round(b.bottom + 12)}px`;
     }
     const top = document.createElement("div");
-    top.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0";
+    top.style.cssText = "display:flex;flex-direction:column;gap:6px;min-width:0";
     const bottom = document.createElement("div");
-    bottom.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap";
-    const light = document.createElement("span");
-    light.style.cssText = "display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;opacity:.9";
+    bottom.style.cssText = "display:flex;flex-direction:column;gap:8px";
+    const light = document.createElement("div");
+    light.style.cssText = "display:flex;align-items:center;gap:6px;font-size:12px;opacity:.85;min-width:0";
     const dot = document.createElement("span");
     dot.style.cssText = "width:9px;height:9px;border-radius:50%;background:#888780;flex:none";
     const lightText = document.createElement("span");
+    lightText.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0";
     light.append(dot, lightText);
+    const line = document.createElement("div");
+    line.style.cssText = "display:flex;align-items:baseline;gap:8px;min-width:0";
     const count = document.createElement("span");
-    count.style.opacity = ".6";
+    count.style.cssText = "opacity:.55;font-size:12px;flex:none;font-variant-numeric:tabular-nums";
     const caption = document.createElement("span");
-    caption.style.cssText = "font:20px 'Patrick Hand',system-ui,sans-serif;flex:1;min-width:0";
-    const extra = document.createElement("span");
+    caption.style.cssText = "font:20px/1.25 'Patrick Hand',system-ui,sans-serif;flex:1;min-width:0;text-wrap:balance";
+    line.append(count, caption);
+    const extra = document.createElement("div");
     extra.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
+    const controls = document.createElement("div");
+    controls.style.cssText = "display:flex;align-items:center;gap:4px;flex-wrap:nowrap";
     const ask = document.createElement("input");
-    ask.placeholder = "Ask about this… (talk with Wispr, Enter to send)";
-    ask.style.cssText = "flex:1 1 100%;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid #fff4;background:#fff1;color:#fff;outline:none;box-sizing:border-box";
+    ask.placeholder = "Ask about this… (Enter to send)";
+    ask.style.cssText = "width:100%;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid #fff4;background:#fff1;color:#fff;outline:none;box-sizing:border-box";
     let current = 0;
     let paused = false;
     let audio = null;
     let timer = null;
     let token = 0;
-    const back = button("Back", () => go(current - 1));
+    const back = button("‹ Back", () => go(current - 1));
     const pause = button("Pause", () => togglePause());
-    const next = button("Next", () => go(current + 1));
-    const replay = button("Replay", () => {
+    const next = button("Next ›", () => go(current + 1));
+    const replay = button("↺ Replay", () => {
       paused = false;
       pause.textContent = "Pause";
+      panels.forEach((p) => (p.style.display = ""));
+      if (column) column.style.display = "";
+      stages.forEach((s) => (s.closed = false));
       go(0);
     });
     const clear = button("Clear", () => fadeMarks(0));
-    clear.title = "Wipe the drawings off the page";
-    const close = button("Close all ✕", () => end());
-    top.append(light, count, caption, extra);
-    bottom.append(ask, back, pause, next, replay, clear, close);
+    clear.title = "Wipe the drawings off the screen";
+    const soundOn = () => {
+      try {
+        return localStorage.getItem("chalktalkSound") !== "off";
+      } catch {
+        return true;
+      }
+    };
+    const sound = button(soundOn() ? "🔊" : "🔇", () => {
+      const on = !soundOn();
+      try {
+        localStorage.setItem("chalktalkSound", on ? "on" : "off");
+      } catch {}
+      sound.textContent = on ? "🔊" : "🔇";
+    });
+    sound.title = "Drawing sounds on or off";
+    [back, pause, next, replay, clear, sound].forEach((b) => (b.style.padding = "3px 9px"));
+    top.append(light, line, extra);
+    controls.append(back, pause, next, replay, clear, sound);
+    bottom.append(controls, ask);
+    const stages = [];
+    steps.forEach((s, index) => {
+      if (!s.stage || !Array.isArray(s.stage.parts)) return;
+      const w = Math.min(s.stage.w || 520, innerWidth - 32);
+      const h = Math.min(s.stage.h || 380, innerHeight - 32 - safe.top - safe.bottom);
+      const x = Number.isFinite(s.stage.x) ? s.stage.x : (innerWidth - w) / 2;
+      const y = Number.isFinite(s.stage.y) ? s.stage.y : Math.max(16 + safe.top, (innerHeight - h) / 2);
+      const el = document.createElement("div");
+      el.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:${w}px;height:${h}px;pointer-events:auto;display:none;opacity:0;transition:opacity .6s ease`;
+      const host = document.createElement("div");
+      host.style.cssText = "position:absolute;inset:0;overflow:visible";
+      const tools = document.createElement("div");
+      tools.style.cssText = "position:absolute;top:-14px;left:50%;transform:translateX(-50%);display:flex;gap:6px;opacity:0;transition:opacity .2s;z-index:2";
+      const grab = document.createElement("div");
+      grab.textContent = "⠿ drag";
+      grab.title = "Drag to move";
+      grab.style.cssText = "padding:3px 10px;border-radius:999px;background:#2c2c2acc;color:#fff;font:12px system-ui,sans-serif;cursor:grab;user-select:none;touch-action:none";
+      const shut = document.createElement("button");
+      shut.type = "button";
+      shut.textContent = "✕";
+      shut.title = "Close";
+      shut.style.cssText = "width:24px;height:24px;border-radius:50%;border:0;background:#2c2c2acc;color:#fff;font:11px system-ui,sans-serif;cursor:pointer";
+      tools.append(grab, shut);
+      el.append(host, tools);
+      if (s.stage.label) {
+        const tag = document.createElement("div");
+        tag.textContent = s.stage.label;
+        tag.style.cssText = "position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);font:18px 'Patrick Hand',system-ui,sans-serif;color:#30333A;padding:2px 12px;border-radius:999px;background:rgba(251,250,246,.85);white-space:nowrap;pointer-events:none";
+        el.append(tag);
+      }
+      el.addEventListener("pointerenter", () => (tools.style.opacity = "1"));
+      el.addEventListener("pointerleave", () => (tools.style.opacity = "0"));
+      const entry = { index, el, closed: false, built: false, host, spec: s.stage };
+      shut.addEventListener("click", (e) => {
+        e.stopPropagation();
+        entry.closed = true;
+        el.style.display = "none";
+      });
+      grab.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        grab.setPointerCapture(e.pointerId);
+        const r = el.getBoundingClientRect();
+        const dx = e.clientX - r.left;
+        const dy = e.clientY - r.top;
+        const move = (ev) => {
+          el.style.left = `${Math.max(-w / 2, Math.min(innerWidth - w / 2, ev.clientX - dx))}px`;
+          el.style.top = `${Math.max(safe.top, Math.min(innerHeight - h / 2, ev.clientY - dy))}px`;
+        };
+        const up = () => {
+          grab.removeEventListener("pointermove", move);
+          grab.removeEventListener("pointerup", up);
+        };
+        grab.addEventListener("pointermove", move);
+        grab.addEventListener("pointerup", up);
+      });
+      root.append(el);
+      stages.push(entry);
+    });
+    function showStages() {
+      stages.forEach((s) => {
+        const on = s.index <= current && !s.closed;
+        s.el.style.display = on ? "" : "none";
+        if (on && !s.built) {
+          s.built = true;
+          window.Chalktalk.figure(s.host, s.spec, window.CHALKTALK_THREE);
+          if (window.Chalktalk.sound) window.Chalktalk.sound.thump(0.1);
+        }
+        requestAnimationFrame(() => (s.el.style.opacity = on ? "1" : "0"));
+      });
+    }
+    function inkSounds() {
+      if (!window.Chalktalk.sound) return;
+      marks.querySelectorAll("path").forEach((p) => {
+        const m = /stroke-dashoffset ([\d.]+)s \S+ ([\d.]+)s/.exec(p.style.transition || "");
+        if (m) window.Chalktalk.sound.scratch(Number(m[2]), Number(m[1]), "marker");
+      });
+    }
     let fadeTimer = 0;
     function fadeMarks(delay) {
       clearTimeout(fadeTimer);
@@ -819,6 +922,8 @@
         if (!timeline) await sleep(450);
       }
       drawMarks(true);
+      inkSounds();
+      showStages();
       const drawBoard = (seconds) => {
         engines.forEach(({ key, engine }, k) => {
           if (step[key] && step[key].length) {

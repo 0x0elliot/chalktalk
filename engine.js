@@ -560,6 +560,103 @@
     return out;
   }
 
+  let audio = null;
+  let noise = null;
+  const soundOn = () => {
+    try {
+      return global.localStorage.getItem("chalktalkSound") !== "off";
+    } catch {
+      return true;
+    }
+  };
+  function mixer() {
+    if (!soundOn()) return null;
+    if (!audio) {
+      const Ctx = global.AudioContext || global.webkitAudioContext;
+      if (!Ctx) return null;
+      audio = new Ctx();
+      const length = audio.sampleRate * 2;
+      noise = audio.createBuffer(1, length, audio.sampleRate);
+      const data = noise.getChannelData(0);
+      let brown = 0;
+      for (let i = 0; i < length; i++) {
+        const white = Math.random() * 2 - 1;
+        brown = (brown + 0.02 * white) / 1.02;
+        data[i] = white * 0.5 + brown * 3;
+      }
+    }
+    if (audio.state === "suspended") audio.resume().catch(() => {});
+    return audio;
+  }
+  const sound = {
+    scratch(delay, duration, kind = "pen") {
+      const c = mixer();
+      if (!c || !(duration > 0.05)) return;
+      const t0 = c.currentTime + Math.max(0, delay);
+      const t1 = t0 + duration;
+      const src = c.createBufferSource();
+      src.buffer = noise;
+      src.loop = true;
+      const low = c.createBiquadFilter();
+      low.type = "highpass";
+      low.frequency.value = kind === "marker" ? 700 : 1100;
+      const band = c.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = (kind === "marker" ? 1900 : 3400) + Math.random() * 600;
+      band.Q.value = 0.8;
+      const level = kind === "marker" ? 0.07 : 0.045;
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(level, t0 + 0.04);
+      gain.gain.setValueAtTime(level, Math.max(t0 + 0.05, t1 - 0.06));
+      gain.gain.linearRampToValueAtTime(0, t1);
+      const wobble = c.createOscillator();
+      wobble.frequency.value = 7 + Math.random() * 6;
+      const depth = c.createGain();
+      depth.gain.value = level * 0.45;
+      wobble.connect(depth).connect(gain.gain);
+      src.connect(low).connect(band).connect(gain).connect(c.destination);
+      src.start(t0, Math.random() * 1.5);
+      src.stop(t1 + 0.05);
+      wobble.start(t0);
+      wobble.stop(t1 + 0.05);
+      sound.flick(t1 - c.currentTime);
+    },
+    flick(delay) {
+      const c = mixer();
+      if (!c) return;
+      const t0 = c.currentTime + Math.max(0, delay);
+      const src = c.createBufferSource();
+      src.buffer = noise;
+      const band = c.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = 4200;
+      band.Q.value = 1.4;
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0.05, t0);
+      gain.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.07);
+      src.connect(band).connect(gain).connect(c.destination);
+      src.start(t0, Math.random());
+      src.stop(t0 + 0.08);
+    },
+    thump(delay) {
+      const c = mixer();
+      if (!c) return;
+      const t0 = c.currentTime + Math.max(0, delay);
+      const src = c.createBufferSource();
+      src.buffer = noise;
+      const lowpass = c.createBiquadFilter();
+      lowpass.type = "lowpass";
+      lowpass.frequency.value = 520;
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0.16, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
+      src.connect(lowpass).connect(gain).connect(c.destination);
+      src.start(t0, Math.random());
+      src.stop(t0 + 0.14);
+    },
+  };
+
   function layout(scene, W, H) {
     const items = (scene.steps || []).flatMap((s) => s.items || []);
     const ends = items.flatMap((it) =>
@@ -664,11 +761,13 @@
           node.style.transition = animate ? `opacity .45s ease ${t}s, transform .55s cubic-bezier(.22,1,.36,1) ${t}s` : "none";
           node.style.opacity = 1;
           if (rise) node.style.transform = "none";
+          if (animate && rise && scene.sound !== false) sound.thump(t);
           if (animate) t += 0.04 * stretch;
         } else {
           const d = Math.min(0.9, Math.max(0.2, node.getTotalLength() / 700));
           node.style.transition = animate ? `stroke-dashoffset ${d}s ease-in-out ${t}s` : "none";
           node.style.strokeDashoffset = 0;
+          if (animate && scene.sound !== false) sound.scratch(t, d);
           if (animate) t += d * 0.85 * stretch;
         }
       });
@@ -773,5 +872,5 @@
     return { go, next: () => go(current + 1), back: () => go(current - 1) };
   }
 
-  global.Chalktalk = { mount, palette: PALETTE, brands: BRANDS, pickVoice };
+  global.Chalktalk = { mount, palette: PALETTE, brands: BRANDS, pickVoice, figure: figure3d, sound };
 })(window);

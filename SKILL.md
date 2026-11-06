@@ -184,6 +184,15 @@ material colour (`steel`, `brick`, `wood`, `concrete`, `water`, `foliage`, `gold
 figure turns. It turns slowly until the user drags it (`"spin": false` keeps it still); scrolling zooms.
 Leave labels for the parts the narration names; five at most.
 
+To stand a 3D figure straight on the user's screen, with no whiteboard around it, give the step a
+`"stage": { "parts": [...], "label", "spin", "camera", "x", "y", "w", "h" }` instead of a `figure`
+board item (screen points; it centres itself when `x`/`y` are left out). It appears when that step
+starts and stays for the rest of the lesson; the user can drag it by its handle, turn it, and close it.
+Prefer a stage for a showpiece model, and a `figure` on the board when the model sits beside 2D marks.
+
+Drawing makes sound: a pen scratch as each stroke draws, a soft thump as a card lands. The user mutes
+it with the speaker button; `"sound": false` on a lesson keeps one silent.
+
 Pictures make a lesson clearer: copy the user's `crop`, a screenshot of a page you opened, or a
 diagram into the lesson folder and show it on the board with an `image` item (`"href": "circle.png"`).
 The helper serves PNG, JPEG, GIF, WebP and SVG from the lesson folder only.
