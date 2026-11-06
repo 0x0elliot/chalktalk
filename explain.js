@@ -93,7 +93,7 @@
     const q = `?tab=${TAB}${SESSION ? `&session=${encodeURIComponent(SESSION)}` : ""}`;
     let AGENT = "";
     const who = () => AGENT || "Claude";
-    const n = steps.length;
+    let n = steps.length;
     const asset = (href) => (!href || /^(https?:|data:|blob:)/.test(href) ? href : `${BASE}${lesson.assetBase || "/lesson/"}${href}${q}`);
     Object.entries(lesson.brands || {}).forEach(([key, b]) => {
       window.Chalktalk.brands[key.toLowerCase().replace(/[\s_-]/g, "")] = { name: b.name || key, color: b.color || "#2c2c2a", src: asset(b.logo) };
@@ -124,6 +124,7 @@
     const safe = { top: 0, right: 0, bottom: 0, left: 0, ...(window.__chalktalkSafe || {}) };
     const boardKeys = ["board", "board2"].filter((key) => steps.some((s) => s[key] && s[key].length));
     const panels = [];
+    const mounts = [];
     const engines = [];
     let column = null;
     let homeColumn = () => {};
@@ -187,6 +188,7 @@
         const mount = document.createElement("div");
         mount.dataset.sketchBoard = "1";
         panel.append(mount);
+        mounts.push(mount);
         column.append(panel);
         panels.push(panel);
         engines.push({
@@ -871,7 +873,8 @@
       });
     }
 
-    const timeline = lesson.audio && Array.isArray(lesson.timeline) && lesson.timeline.length === n ? lesson.timeline : null;
+    const streaming = Boolean(lesson.stream);
+    const timeline = !streaming && lesson.audio && Array.isArray(lesson.timeline) && lesson.timeline.length === n ? lesson.timeline : null;
     let track = null;
     let follow = 0;
     let waitTimer = 0;
@@ -961,6 +964,23 @@
           if (!timed && seconds && natural > 0.3 && seconds * 0.85 > natural) engine.go(current, (seconds * 0.85) / natural);
         });
       };
+      if (streaming) {
+        const mine = token;
+        drawBoard(step.seconds || 8);
+        if (paused) return;
+        if (!step.audio) return void waitForClip(mine);
+        stopVoice();
+        const el = new Audio(`${BASE}${lesson.assetBase || "/lesson/"}${step.audio}${q}`);
+        track = el;
+        el.onended = () => {
+          if (mine !== token) return;
+          if (current < n - 1) go(current + 1);
+          else if (lesson.done) finished();
+          else waitForNext(mine);
+        };
+        el.play().catch(() => (caption.textContent = "Press Play to hear it"));
+        return;
+      }
       if (timeline) {
         drawBoard(cueEnd(current) - timeline[current]);
         if (fromTrack) return;
@@ -986,6 +1006,59 @@
         },
         drawBoard,
       );
+    }
+
+    // A streamed lesson grows while it plays: fetch the newer file, rebuild the boards it changed,
+    // and keep going. The stage and the audio are untouched.
+    async function grow() {
+      try {
+        const res = await fetch(`${BASE}/lesson/live${q}`);
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (data.done) lesson.done = true;
+        if (!Array.isArray(data.steps) || data.steps.length <= n) return false;
+        for (let i = 0; i < data.steps.length; i++) steps[i] = data.steps[i];
+        n = steps.length;
+        await window.Chalktalk.prepare(steps.flatMap((s) => [...(s.board || []), ...(s.board2 || [])]), BASE);
+        engines.forEach((entry, k) => {
+          const meta = (lesson.boards && lesson.boards[k]) || (k === 0 ? lesson.board : null) || {};
+          entry.engine = window.Chalktalk.mount(mounts[k], {
+            width: meta.width || 600,
+            height: meta.height || (boardKeys.length > 1 ? 260 : 420),
+            autoplay: false,
+            steps: steps.map((s) => ({ caption: s.caption, items: s[entry.key] || [], clear: Boolean(s.clear) })),
+          });
+          entry.engine.go(current);
+        });
+        count.textContent = `${current + 1}/${n}`;
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    async function waitForNext(mine) {
+      caption.textContent = "…";
+      for (let tries = 0; tries < 300; tries++) {
+        if (mine !== token) return;
+        if (await grow()) {
+          if (current < n - 1) go(current + 1);
+          return;
+        }
+        if (lesson.done) {
+          finished();
+          return;
+        }
+        await sleep(800);
+      }
+    }
+
+    async function waitForClip(mine) {
+      for (let tries = 0; tries < 300; tries++) {
+        if (mine !== token) return;
+        if (steps[current].audio) return go(current);
+        if (!(await grow())) await sleep(700);
+      }
     }
 
     function togglePause() {

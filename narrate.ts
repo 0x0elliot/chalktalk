@@ -23,6 +23,7 @@ function flag(name: string): string | undefined {
   return i >= 0 ? flags[i + 1] : undefined;
 }
 
+
 type KeySource =
   | { from: "env"; name?: string }
   | { from: "keychain"; service?: string }
@@ -47,15 +48,6 @@ const lesson = (await lessonFile.json()) as Lesson;
 const steps = lesson.steps ?? [];
 const says = steps.map((step) => (step.say ?? "").trim());
 
-// The voice only depends on the words, so a board edit must not pay for a new recording.
-const stamp = new Bun.CryptoHasher("sha1")
-  .update([flag("engine") ?? config.voice ?? "kokoro", flag("voice") ?? config.elevenlabsVoice ?? "", ...says].join("\u0000"))
-  .digest("hex");
-const stampFile = Bun.file(`${dir}/.narration`);
-if ((await Bun.file(`${dir}/lesson.mp3`).exists()) && (await stampFile.exists()) && (await stampFile.text()).trim() === stamp) {
-  process.stdout.write("words unchanged, reusing the existing voice and timings\n");
-  process.exit(0);
-}
 
 function elevenKey(): string {
   const read = (command: string[]) => {
@@ -183,6 +175,75 @@ async function withKokoro(): Promise<Spoken> {
 
 const wanted = flag("engine") ?? (await configuredEngine());
 let spoken: Spoken;
+// One clip per step, so a lesson can start playing before the later steps are recorded.
+if (flags.includes("--per-step")) {
+  const engine = flag("engine") ?? config.voice ?? "kokoro";
+  if (engine !== "elevenlabs") fail("--per-step needs elevenlabs (kokoro records one track)");
+  const key = elevenKey();
+  if (!key) fail(`no ElevenLabs key: ${keyHelp()}`);
+  const voice = flag("voice") ?? config.elevenlabsVoice ?? ELEVEN_VOICE;
+  const only = Number(flag("only") ?? 0) || 0;
+  const targets = only ? [only - 1] : steps.map((_, i) => i);
+  let wrote = 0;
+  for (const i of targets) {
+    const words = says[i];
+    if (!words) continue;
+    const step = steps[i];
+    if (step.audio && only === 0) continue;
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_128`, {
+      method: "POST",
+      headers: { "xi-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: words, model_id: config.elevenlabsModel || ELEVEN_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+    });
+    if (!response.ok) fail(`ElevenLabs answered ${response.status}: ${await response.text()}`);
+    const spoken = (await response.json()) as { audio_base64: string; alignment: { character_start_times_seconds: number[] } };
+    const file = `step-${i + 1}.mp3`;
+    await Bun.write(`${dir}/${file}`, Buffer.from(spoken.audio_base64, "base64"));
+    const times = spoken.alignment.character_start_times_seconds;
+    const at = (index: number) => times[Math.min(index, times.length - 1)] ?? 0;
+    step.audio = file;
+    step.seconds = Math.round((times[times.length - 1] ?? 0) * 100) / 100;
+    const said = words.toLowerCase();
+    for (const cue of [...(step.board ?? []), ...(step.board2 ?? []), ...(step.highlight ?? [])]) {
+      if (!cue.on) continue;
+      const found = said.indexOf(cue.on.toLowerCase());
+      if (found >= 0) cue.at = Math.round(at(found) * 100) / 100;
+    }
+    wrote++;
+  }
+  // Re-read before writing: the lesson may have grown while this clip was being recorded.
+  const fresh = ((await Bun.file(`${dir}/lesson.json`).json().catch(() => lesson)) ?? lesson) as Lesson;
+  const freshSteps = fresh.steps ?? [];
+  for (const i of targets) {
+    const from = steps[i];
+    const to = freshSteps[i];
+    if (!from?.audio || !to) continue;
+    to.audio = from.audio;
+    to.seconds = from.seconds;
+    for (const cue of [...(to.board ?? []), ...(to.board2 ?? []), ...(to.highlight ?? [])]) {
+      if (!cue.on) continue;
+      const was = [...(from.board ?? []), ...(from.board2 ?? []), ...(from.highlight ?? [])].find((c) => c.on === cue.on);
+      if (was && typeof was.at === "number") cue.at = was.at;
+    }
+  }
+  fresh.stream = true;
+  delete fresh.audio;
+  delete fresh.timeline;
+  await Bun.write(`${dir}/lesson.json`, JSON.stringify(fresh, null, 2));
+  process.stdout.write(`recorded ${wrote} step${wrote === 1 ? "" : "s"} as separate clips\n`);
+  process.exit(0);
+}
+
+// The voice only depends on the words, so a board edit must not pay for a new recording.
+const stamp = new Bun.CryptoHasher("sha1")
+  .update([flag("engine") ?? config.voice ?? "kokoro", flag("voice") ?? config.elevenlabsVoice ?? "", ...says].join("\u0000"))
+  .digest("hex");
+const stampFile = Bun.file(`${dir}/.narration`);
+if ((await Bun.file(`${dir}/lesson.mp3`).exists()) && (await stampFile.exists()) && (await stampFile.text()).trim() === stamp) {
+  process.stdout.write("words unchanged, reusing the existing voice and timings\n");
+  process.exit(0);
+}
+
 let used = wanted;
 try {
   spoken = wanted === "elevenlabs" ? await withElevenLabs() : await withKokoro();

@@ -367,6 +367,15 @@ async function serve(): Promise<void> {
           const lesson = (await Bun.file(`${item.dir}/lesson.json`).json()) as Record<string, unknown>;
           return json({ ...lesson, assetBase: `/recent/${item.id}/` }, 200, headers);
         }
+        if (req.method === "GET" && pathname === "/lesson/live") {
+          const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
+          if (!s || !s.lessonDir) return json({ version: 0 }, 200, headers);
+          const file = Bun.file(`${s.lessonDir}/lesson.json`);
+          if (!(await file.exists())) return json({ version: 0 }, 200, headers);
+          const data = (await file.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!data) return json({ version: 0 }, 200, headers);
+          return json({ ...data, version: file.lastModified, assetBase: "/lesson/" }, 200, headers);
+        }
         if (req.method === "GET" && pathname === "/lesson") {
           const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
           if (!s || !s.lessonDir || s.lessonSent || !forTab(s, tab)) return new Response(null, { status: 204, headers });
@@ -508,6 +517,38 @@ async function replay(slug: string): Promise<void> {
   out(JSON.stringify({ replayed: slug, listening: true }));
 }
 
+// Watch a lesson folder while it is being written: record any step that has no clip yet, so the
+// page can start on step one and pick the rest up as they land.
+async function watch(dir: string): Promise<void> {
+  const file = `${dir}/lesson.json`;
+  let last = 0;
+  let quietSince = Date.now();
+  for (;;) {
+    const f = Bun.file(file);
+    const stamp = (await f.exists()) ? f.lastModified + f.size : 0;
+    if (stamp && stamp !== last) {
+      last = stamp;
+      quietSince = Date.now();
+      const lesson = (await f.json().catch(() => null)) as { steps?: Array<{ audio?: string }>; done?: boolean } | null;
+      const steps = lesson?.steps ?? [];
+      const missing = steps.map((step, i) => (step.audio ? -1 : i)).filter((i) => i >= 0);
+      for (const i of missing) {
+        const run = Bun.spawn(["bun", fileURLToPath(new URL("./narrate.ts", import.meta.url)), dir, "--per-step", "--only", String(i + 1)], { stdout: "inherit", stderr: "inherit" });
+        await run.exited;
+      }
+      if (lesson?.done && steps.length && steps.every((step) => step.audio)) {
+        out(JSON.stringify({ streamed: dir, steps: steps.length }));
+        return;
+      }
+    }
+    if (Date.now() - quietSince > 10 * 60_000) {
+      out(JSON.stringify({ streamed: dir, abandoned: true }));
+      return;
+    }
+    await Bun.sleep(600);
+  }
+}
+
 // check, narrate and post in one call, then put the waiter back: the whole tail of a lesson
 // is one command, so the user is not waiting on three separate round trips.
 async function send(dir: string): Promise<void> {
@@ -516,7 +557,11 @@ async function send(dir: string): Promise<void> {
   const script = (name: string) => fileURLToPath(new URL(`./${name}`, import.meta.url));
   const check = Bun.spawn(["bun", script("check.ts"), dir], { stdout: "inherit", stderr: "inherit" });
   await check.exited;
-  const narrate = Bun.spawn(["bun", script("narrate.ts"), dir], { stdout: "inherit", stderr: "inherit" });
+  const stream = rest.includes("--stream");
+  const narrate = Bun.spawn(
+    ["bun", script("narrate.ts"), dir, ...(stream ? ["--per-step"] : [])],
+    { stdout: "inherit", stderr: "inherit" },
+  );
   if ((await narrate.exited) !== 0) fail("narration failed, so nothing was sent");
   if (dry) {
     out("dry run: checked and narrated, nothing sent");
@@ -529,7 +574,11 @@ async function send(dir: string): Promise<void> {
     detached: true,
   });
   bg.unref();
-  out(JSON.stringify({ sent: resolvePath(dir), saved: slug, listening: true }));
+  if (stream) {
+    const watcher = Bun.spawn(["bun", script("listen.ts"), "watch", resolvePath(dir)], { stdio: ["ignore", "ignore", "ignore"], detached: true });
+    watcher.unref();
+  }
+  out(JSON.stringify({ sent: resolvePath(dir), saved: slug, listening: true, streaming: stream }));
 }
 
 async function wait(): Promise<void> {
@@ -581,6 +630,7 @@ if (command === "serve") await serve();
 else if (command === "start") await start();
 else if (command === "send") await send(words[0]);
 else if (command === "replay") await replay(words[0] ?? "");
+else if (command === "watch") await watch(words[0] ?? "");
 else if (command === "saved") {
   const file = Bun.file(`${HOME}/saved/index.json`);
   const list = (await file.exists()) ? await file.json().catch(() => []) : [];

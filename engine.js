@@ -68,25 +68,25 @@
     copper: "#b87333", paper: "#f3efe6", glass: "#dfe9ef", plastic: "#e8e6e1", rubber: "#2b2b2b",
   };
 
-  function part3d(T, p) {
+  function part3d(T, p, look) {
     const s = p.size || [];
     const num = (v, d) => (typeof v === "number" && isFinite(v) && v > 0 ? v : d);
     let geo;
     switch (p.shape || "box") {
       case "sphere":
-        geo = new T.SphereGeometry(num(p.r, 0.5), 48, 32);
+        geo = new T.SphereGeometry(num(p.r, 0.5), look === "solid" ? 48 : 14, look === "solid" ? 32 : 10);
         break;
       case "cylinder":
-        geo = new T.CylinderGeometry(num(p.r, 0.5), num(p.r, 0.5), num(p.h, 1), 48);
+        geo = new T.CylinderGeometry(num(p.r, 0.5), num(p.r, 0.5), num(p.h, 1), look === "solid" ? 48 : 12);
         break;
       case "cone":
-        geo = new T.ConeGeometry(num(p.r, 0.5), num(p.h, 1), 48);
+        geo = new T.ConeGeometry(num(p.r, 0.5), num(p.h, 1), look === "solid" ? 48 : 12);
         break;
       case "torus":
-        geo = new T.TorusGeometry(num(p.r, 0.5), num(p.tube, 0.15), 24, 64);
+        geo = new T.TorusGeometry(num(p.r, 0.5), num(p.tube, 0.15), look === "solid" ? 24 : 10, look === "solid" ? 64 : 24);
         break;
       case "capsule":
-        geo = new T.CapsuleGeometry(num(p.r, 0.3), num(p.h, 1), 8, 24);
+        geo = new T.CapsuleGeometry(num(p.r, 0.3), num(p.h, 1), look === "solid" ? 8 : 4, look === "solid" ? 24 : 12);
         break;
       default: {
         const [w, h, d] = [num(s[0], 1), num(s[1], 1), num(s[2], 1)];
@@ -98,7 +98,9 @@
     const color = REAL[p.color] || (brand && brand.color) || (brandOf(p.color) && brandOf(p.color).color) || p.color || "#d9d4ca";
     const kind = p.material || (p.color === "glass" ? "glass" : p.color === "steel" || p.color === "gold" || p.color === "copper" ? "metal" : "matte");
     const mat =
-      kind === "glass"
+      look !== "solid" && kind !== "glass"
+        ? new T.MeshStandardMaterial({ color, roughness: 0.94, metalness: 0, flatShading: true })
+        : kind === "glass"
         ? new T.MeshPhysicalMaterial({ color, transmission: 1, roughness: 0.06, thickness: 0.4, ior: 1.45, transparent: true })
         : kind === "metal"
           ? new T.MeshStandardMaterial({ color, metalness: 1, roughness: 0.32 })
@@ -106,6 +108,10 @@
             ? new T.MeshPhysicalMaterial({ color, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.08 })
             : new T.MeshPhysicalMaterial({ color, roughness: 0.62, clearcoat: 0.12 });
     const mesh = new T.Mesh(geo, mat);
+    // A folded-paper read: faceted surfaces and a faint crease line along every fold.
+    if (look !== "solid" && kind !== "glass") {
+      mesh.add(new T.LineSegments(new T.EdgesGeometry(geo, 24), new T.LineBasicMaterial({ color: 0x2f3136, transparent: true, opacity: 0.3 })));
+    }
     const at = Array.isArray(p.at) ? p.at : [0, 0, 0];
     mesh.position.set(+at[0] || 0, +at[1] || 0, +at[2] || 0);
     const turn = Array.isArray(p.turn) ? p.turn : [0, 0, 0];
@@ -148,6 +154,7 @@
     const group = new T.Group();
     scene.add(group);
     const tags = [];
+    const look = it.style || "paper";
     // Parts can change between steps without touching the camera, so a model the user has turned
     // or zoomed stays put while it gains pieces.
     const setParts = (parts) => {
@@ -160,13 +167,13 @@
       });
       tags.splice(0).forEach(({ tag }) => tag.remove());
       (parts || []).slice(0, 60).forEach((p) => {
-        const mesh = part3d(T, p);
+        const mesh = part3d(T, p, look);
         group.add(mesh);
         if (p.label) {
           const tag = document.createElement("div");
           tag.textContent = p.label;
           tag.style.cssText =
-            "position:absolute;transform:translate(-50%,-100%);padding:2px 10px;border-radius:999px;background:rgba(251,250,246,.92);color:#30333A;font:16px 'Patrick Hand',system-ui,sans-serif;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)";
+            "position:absolute;left:-300px;top:-300px;opacity:0;transform:translate(-50%,-100%);padding:2px 10px;border-radius:999px;background:rgba(251,250,246,.92);color:#30333A;font:16px 'Patrick Hand',system-ui,sans-serif;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)";
           host.append(tag);
           tags.push({ mesh, tag });
         }
@@ -231,6 +238,7 @@
         v.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2).project(camera);
         tag.style.left = `${((v.x + 1) / 2) * host.clientWidth}px`;
         tag.style.top = `${((1 - v.y) / 2) * host.clientHeight - 6}px`;
+        if (tag.style.opacity !== "1") tag.style.opacity = "1";
       });
     });
     return { setParts };

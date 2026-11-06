@@ -287,6 +287,24 @@ on the step that should remove it.
 A `figure` item on the board is the exception, for when the 3D model has to be read against 2D marks
 (an arrow into one part, a label pinned beside another). If you use one, say why in the step.
 
+**Nothing jumps.** The board is watched while it happens, so movement reads as a mistake even when
+the picture underneath is right. Five rules, all learned the hard way:
+
+- **One element per thing, for the whole lesson.** A stage keeps its `id`, its place and its camera from
+  step one to the last; only its parts change. A board keeps its panel. If the user has dragged, turned
+  or resized something, nothing later may reset it — not a `clear`, not a new step, not a redraw.
+- **Anything that appears must appear where it belongs.** If an element is placed by script after the
+  first paint (a 3D part label, a floating card), give it its final coordinates or keep it hidden until
+  it has them. Otherwise it exists for one frame at 0,0 and shows up as a white pill in the corner.
+- **New parts grow in place.** When a step adds to a model — more parts, a taller stack — the base stays
+  put and the thing gets bigger. It must not re-centre, re-frame or re-scale to fit.
+- **Surfaces keep their lanes.** The whiteboard and the 3D stage are separate surfaces. Clearing the
+  board leaves the model where it is; a board that appears must not push, cover or hide the model. If
+  they would overlap at the default position, move one of them yourself rather than asking the reader
+  to tidy up mid-lesson.
+- **Say what changes.** If a step genuinely replaces the picture rather than adding to it, say the turn
+  out loud ("now the other side"), so the change arrives expected.
+
 **The board is state.** Everything you draw stays until a step clears it, so decide what lives where
 before the first step and keep a ledger as you write: the spine, the subject, the annotations.
 
@@ -414,6 +432,18 @@ lesson about the real world usually needs both:
 - Both can share one board: map on top, timeline underneath, each step touching both. That is the
   standard shape for history, and it beats any arrangement of boxes.
 
+**One design language: a teacher's paper notebook.** Every lesson is drawn in the same two materials, so
+a dozen lessons feel like one book.
+
+- **2D** is felt pen on cream paper: the wobble stroke, `--sketch-paper` behind it, one accent colour per
+  idea (red problem, green answer, amber decision). Cards are paper slips with a thin coloured edge.
+- **3D is a paper model, not a render.** Low-poly, matte, flat-shaded, with a faint crease along every
+  fold and colours from the same palette as the pen. Chrome, gloss and metal read as a different product,
+  so keep `"style": "paper"` on stages and figures; `"style": "solid"` is only for when the material
+  itself is the point (glass, water, an actual machine finish).
+- **Nothing else.** No gradients, no drop shadows except the one on a card, no photo-real lighting, no
+  emoji walls. If an element would not belong in a teacher's notebook, it does not belong on the board.
+
 **Pick the picture for the topic, and mix them.** Boxes and arrows are for systems. Most other topics
 have a better shape, and a lesson that uses two or three kinds is easier to follow than one made of
 boxes:
@@ -443,9 +473,9 @@ An emoji in a `text` item is a quick pictogram (🏛️ ⚔️ 🚂 📈); one o
   and settings that are off as plain facts where they belong.
 - Plain words in `say`; no symbols or file paths (they read badly out loud). Names go on the board.
 - End on a one-sentence recap, and give two to four `followups` that fit.
-- Before you send, read the board as a picture. Walk the steps in order and check three things: nothing
-  lands on a spot something earlier already used, a lesson about a place has a map, and a lesson with
-  dates has a timeline.
+- Before you send, read the board as a picture. Walk the steps in order and check four things: nothing
+  lands on a spot something earlier already used, nothing jumps or flashes when a step changes, a
+  lesson about a place has a map, and a lesson with dates has a timeline.
 
 ## 6. The voice
 

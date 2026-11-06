@@ -110,6 +110,23 @@ steps.forEach((step, i) => {
   });
 });
 
+// A stage that changes identity or geometry between steps makes the model jump.
+const stageIds = new Map();
+steps.forEach((s, i) => {
+  if (!s.stage || !Array.isArray(s.stage.parts)) return;
+  const id = s.stage.id ? String(s.stage.id) : "";
+  if (!id) {
+    if (steps.filter((x) => x.stage).length > 1) warn(i + 1, "stage without an id — give it one so it is the same object every step");
+    return;
+  }
+  const before = stageIds.get(id);
+  if (before) {
+    const same = ["x", "y", "w", "h"].every((k) => (before[k] ?? null) === (s.stage[k] ?? null));
+    if (!same) warn(i + 1, `stage "${id}" moves or resizes between steps — keep x, y, w, h fixed and change only parts`);
+  }
+  stageIds.set(id, s.stage);
+});
+
 if (!steps.length) warn(0, "no steps");
 if (steps.length > 7) warn(0, `${steps.length} steps is long for one answer`);
 if (steps.length && !sawClear && steps.length > 4) warn(0, "no clear in a long lesson — check the board can hold it");
