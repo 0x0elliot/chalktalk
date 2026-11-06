@@ -509,11 +509,7 @@ async function replay(slug: string): Promise<void> {
   const dir = `${HOME}/saved/${slug.replace(/[^a-z0-9-]/g, "")}`;
   if (!(await Bun.file(`${dir}/lesson.json`).exists())) fail(`no saved lesson called ${slug}; bun listen.ts saved lists them`);
   await call("/internal/lesson", { dir });
-  const bg = Bun.spawn(["bun", fileURLToPath(new URL("./listen.ts", import.meta.url)), "start", "--name", sessionName, ...(agentName ? ["--as", agentName] : [])], {
-    stdio: ["ignore", "ignore", "ignore"],
-    detached: true,
-  });
-  bg.unref();
+  await ensureWaiter();
   out(JSON.stringify({ replayed: slug, listening: true }));
 }
 
@@ -569,11 +565,7 @@ async function send(dir: string): Promise<void> {
   }
   await call("/internal/lesson", { dir: resolvePath(dir) });
   const slug = await saveLesson(dir);
-  const bg = Bun.spawn(["bun", script("listen.ts"), "start", "--name", sessionName, ...(agentName ? ["--as", agentName] : [])], {
-    stdio: ["ignore", "ignore", "ignore"],
-    detached: true,
-  });
-  bg.unref();
+  await ensureWaiter();
   if (stream) {
     const watcher = Bun.spawn(["bun", script("listen.ts"), "watch", resolvePath(dir)], { stdio: ["ignore", "ignore", "ignore"], detached: true });
     watcher.unref();
@@ -587,9 +579,32 @@ async function wait(): Promise<void> {
   else out(JSON.stringify({ status: "timed out" }));
 }
 
+const waiterFile = () => `${HOME}/wait-${sessionName}.pid`;
+
+// Only one waiter per session: a second one would split the user's notes between two processes.
+async function ensureWaiter(): Promise<void> {
+  const file = waiterFile();
+  if (await Bun.file(file).exists()) {
+    const pid = Number((await Bun.file(file).text()).trim());
+    if (pid) {
+      try {
+        process.kill(pid, 0);
+        return;
+      } catch {}
+    }
+  }
+  const bg = Bun.spawn(["bun", fileURLToPath(new URL("./listen.ts", import.meta.url)), "start", "--name", sessionName, ...(agentName ? ["--as", agentName] : [])], {
+    stdio: ["ignore", "ignore", "ignore"],
+    detached: true,
+  });
+  bg.unref();
+  await Bun.write(file, String(bg.pid));
+}
+
 // The long-lived listener behind `start`: it never times out while the session is alive, and it
 // brings the helper back if the helper stopped (idle shutdown, a crash, a restart).
 async function listen(): Promise<void> {
+  await Bun.write(waiterFile(), String(process.pid));
   for (;;) {
     const line = await nextNote(60);
     if (line) {
