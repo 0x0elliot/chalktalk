@@ -191,38 +191,37 @@ if (flags.includes("--per-step")) {
   if (!key) fail(`no ElevenLabs key: ${keyHelp()}`);
   const voice = flag("voice") ?? config.elevenlabsVoice ?? ELEVEN_VOICE;
   const only = Number(flag("only") ?? 0) || 0;
-  const targets = only ? [only - 1] : steps.map((_, i) => i);
-  let wrote = 0;
-  for (const i of targets) {
-    const words = says[i];
-    if (!words) continue;
+  const targets = (only ? [only - 1] : steps.map((_, i) => i)).filter((i) => says[i] && (only > 0 || !steps[i].audio));
+  const recorded = await Promise.all(
+    targets.map(async (i) => {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_128`, {
+        method: "POST",
+        headers: { "xi-api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: says[i], model_id: config.elevenlabsModel || ELEVEN_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+      });
+      if (!response.ok) fail(`ElevenLabs answered ${response.status}: ${await response.text()}`);
+      const spoken = (await response.json()) as { audio_base64: string; alignment: { character_start_times_seconds: number[] } };
+      const file = `step-${i + 1}.mp3`;
+      await Bun.write(`${dir}/${file}`, Buffer.from(spoken.audio_base64, "base64"));
+      return { i, file, times: spoken.alignment.character_start_times_seconds };
+    }),
+  );
+  const at = (times: number[], index: number) => times[Math.min(index, times.length - 1)] ?? 0;
+  for (const { i, file, times } of recorded) {
     const step = steps[i];
-    if (step.audio && only === 0) continue;
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}/with-timestamps?output_format=mp3_44100_128`, {
-      method: "POST",
-      headers: { "xi-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: words, model_id: config.elevenlabsModel || ELEVEN_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
-    });
-    if (!response.ok) fail(`ElevenLabs answered ${response.status}: ${await response.text()}`);
-    const spoken = (await response.json()) as { audio_base64: string; alignment: { character_start_times_seconds: number[] } };
-    const file = `step-${i + 1}.mp3`;
-    await Bun.write(`${dir}/${file}`, Buffer.from(spoken.audio_base64, "base64"));
-    const times = spoken.alignment.character_start_times_seconds;
-    const at = (index: number) => times[Math.min(index, times.length - 1)] ?? 0;
     step.audio = file;
     step.seconds = Math.round((times[times.length - 1] ?? 0) * 100) / 100;
-    const said = words.toLowerCase();
+    const said = says[i].toLowerCase();
     for (const cue of [...(step.board ?? []), ...(step.board2 ?? []), ...(step.highlight ?? [])]) {
       if (!cue.on) continue;
       const found = said.indexOf(cue.on.toLowerCase());
-      if (found >= 0) cue.at = Math.round(at(found) * 100) / 100;
+      if (found >= 0) cue.at = Math.round(at(times, found) * 100) / 100;
     }
-    wrote++;
   }
-  // Re-read before writing: the lesson may have grown while this clip was being recorded.
+  // Re-read before writing: the lesson may have grown while these clips were being recorded.
   const fresh = ((await Bun.file(`${dir}/lesson.json`).json().catch(() => lesson)) ?? lesson) as Lesson;
   const freshSteps = fresh.steps ?? [];
-  for (const i of targets) {
+  for (const { i } of recorded) {
     const from = steps[i];
     const to = freshSteps[i];
     if (!from?.audio || !to) continue;
@@ -238,7 +237,7 @@ if (flags.includes("--per-step")) {
   delete fresh.audio;
   delete fresh.timeline;
   await Bun.write(`${dir}/lesson.json`, JSON.stringify(fresh, null, 2));
-  process.stdout.write(`recorded ${wrote} step${wrote === 1 ? "" : "s"} as separate clips\n`);
+  process.stdout.write(`recorded ${recorded.length} step${recorded.length === 1 ? "" : "s"} as separate clips\n`);
   process.exit(0);
 }
 

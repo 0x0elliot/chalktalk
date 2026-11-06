@@ -519,6 +519,7 @@ async function watch(dir: string): Promise<void> {
   const file = `${dir}/lesson.json`;
   let last = 0;
   let quietSince = Date.now();
+  let completeSince = 0;
   for (;;) {
     const f = Bun.file(file);
     const stamp = (await f.exists()) ? f.lastModified + f.size : 0;
@@ -532,7 +533,10 @@ async function watch(dir: string): Promise<void> {
         const run = Bun.spawn(["bun", fileURLToPath(new URL("./narrate.ts", import.meta.url)), dir, "--per-step", "--only", String(i + 1)], { stdout: "inherit", stderr: "inherit" });
         await run.exited;
       }
-      if (lesson?.done && steps.length && steps.every((step) => step.audio)) {
+      // "done" is optional: a lesson that has every clip and has stopped changing is finished.
+      const complete = steps.length > 0 && steps.every((step) => step.audio);
+      if (complete) completeSince = completeSince || Date.now();
+      if ((lesson?.done || (complete && Date.now() - completeSince > 4000)) && complete) {
         out(JSON.stringify({ streamed: dir, steps: steps.length }));
         return;
       }
