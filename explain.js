@@ -452,7 +452,7 @@
       el.append(tag);
       el.addEventListener("pointerenter", () => (tools.style.opacity = "1"));
       el.addEventListener("pointerleave", () => (tools.style.opacity = "0"));
-      const rec = { el, host, tag, built: -1, closed: false, api: null };
+      const rec = { el, host, tag, built: -1, closed: false, api: null, parts: [] };
       shut.addEventListener("click", (e) => {
         e.stopPropagation();
         rec.closed = true;
@@ -494,14 +494,18 @@
         const on = latest >= 0 && !hidden && !rec.closed;
         if (on && rec.built !== latest) {
           const spec = steps[latest].stage;
+          // A later step may say "add these parts" instead of repeating the whole model, which is
+          // the difference between a 1.5k-character stage and three of them.
+          const parts = Array.isArray(spec.parts) ? spec.parts : (rec.parts || []).concat(spec.add || []);
           if (rec.built < 0) {
-            rec.api = window.Chalktalk.figure(rec.host, spec, window.CHALKTALK_THREE);
+            rec.api = window.Chalktalk.figure(rec.host, { ...spec, parts }, window.CHALKTALK_THREE);
             if (window.Chalktalk.sound) window.Chalktalk.sound.thump(0.1);
           } else {
             // Same element, same camera: only the parts change, so a model the user moved or turned
             // stays exactly where it is.
-            Promise.resolve(rec.api).then((api) => api && api.setParts(spec.parts));
+            Promise.resolve(rec.api).then((api) => api && api.setParts(parts));
           }
+          rec.parts = parts;
           rec.tag.textContent = spec.label || "";
           rec.tag.style.display = spec.label ? "" : "none";
           rec.built = latest;

@@ -308,6 +308,10 @@ brakes. It is one element and one camera for the whole lesson, so if the user dr
 turns it, it stays exactly there while the parts change underneath. Give every stage a stable `id` when
 it is the same object.
 
+A later step can add to the model instead of repeating it: `{ "stage": { "id": "car", "add": [ …parts… ] } }`
+appends to what is already there, with the camera untouched. On a three-step car that is 30% fewer
+characters than sending the whole model each time, and it reads like the model growing.
+
 `"clear": true` wipes the boards, not the stage, so a model can stay on screen while the whiteboard
 talks about something else. To take the model away, say so: `{ "stage": { "id": "car", "hide": true } }`
 on the step that should remove it.

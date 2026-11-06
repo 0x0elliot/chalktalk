@@ -122,7 +122,7 @@ steps.forEach((step, i) => {
 // A stage that changes identity or geometry between steps makes the model jump.
 const stageIds = new Map();
 steps.forEach((s, i) => {
-  if (!s.stage || !Array.isArray(s.stage.parts)) return;
+  if (!s.stage || (!Array.isArray(s.stage.parts) && !Array.isArray(s.stage.add))) return;
   const id = s.stage.id ? String(s.stage.id) : "";
   if (!id) {
     if (steps.filter((x) => x.stage).length > 1) warn(i + 1, "stage without an id — give it one so it is the same object every step");
