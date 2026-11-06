@@ -28,9 +28,10 @@ image. Read the ones you need before the first lesson of a session.
   with nothing specific in mind: run one command, `bun <skill-dir>/listen.ts start --as "<model>"`, with
   `run_in_background: true`. It starts the helper if it is off, starts the desktop app (building it the
   first time, about 5 minutes), prints the Listening line, and then waits for the user's note in that
-  same process. It also prints a `note:` line when another session is listening too. Do not check pids,
-  read `desktop.ts`, or look the helper up by hand first; `start` does all of it, and its output is the
-  only thing worth reading.
+  same process. It does not time out while the session is alive, and if the helper stops it starts it
+  again and says so on a `note:` line. It also prints a `note:` line when another session is listening
+  too. Do not check pids, read `desktop.ts`, or look the helper up by hand first; `start` does all of
+  it, and its output is the only thing worth reading.
 - Say the Listening line and nothing else: "Listening. Click Chalktalk on any page, or press ⌃⌥C anywhere
   on screen." Take the hotkey from that line (⌃⌥C on a Mac, Ctrl+Alt+C elsewhere). If `start` printed a
   failure instead, say that line. The bookmark's "nobody is listening" message tells the user to paste

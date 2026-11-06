@@ -439,14 +439,16 @@ async function helperUp(): Promise<boolean> {
   }
 }
 
+async function startHelper(): Promise<boolean> {
+  const script = fileURLToPath(new URL("./listen.ts", import.meta.url));
+  const helper = Bun.spawn(["bun", script, "serve"], { stdio: ["ignore", "ignore", "ignore"], detached: true });
+  helper.unref();
+  for (let i = 0; i < 50 && !(await helperUp()); i++) await Bun.sleep(100);
+  return helperUp();
+}
+
 async function start(): Promise<void> {
-  if (!(await helperUp())) {
-    const script = fileURLToPath(new URL("./listen.ts", import.meta.url));
-    const helper = Bun.spawn(["bun", script, "serve"], { stdio: ["ignore", "ignore", "ignore"], detached: true });
-    helper.unref();
-    for (let i = 0; i < 50 && !(await helperUp()); i++) await Bun.sleep(100);
-    if (!(await helperUp())) fail("The chalktalk helper did not start. Run: bun listen.ts serve");
-  }
+  if (!(await helperUp()) && !(await startHelper())) fail("The chalktalk helper did not start. Run: bun listen.ts serve");
   const app = Bun.spawn(["bun", fileURLToPath(new URL("./desktop.ts", import.meta.url)), "start"], { stdout: "inherit", stderr: "inherit" });
   await app.exited;
   let others: string[] = [];
@@ -456,21 +458,39 @@ async function start(): Promise<void> {
   } catch {}
   out(`Listening. Click Chalktalk on any page, or press ${HOTKEY} anywhere on screen.`);
   if (others.length) out(`note: ${others.join(", ")} also listening, so the page will ask which session. A finished chat's entry clears by itself in about a minute.`);
-  await wait();
+  await listen();
 }
 
-async function wait(): Promise<void> {
-  const until = Date.now() + Number(flag("minutes", "30")) * 60_000;
+// One long poll round. Returns the note, or null when the round ends without one.
+async function nextNote(seconds: number): Promise<string | null> {
+  const until = Date.now() + seconds * 1000;
   while (Date.now() < until) {
     const res = await internal("/internal/next");
-    if (!res) fail("No chalktalk helper is running. Start one with: bun listen.ts serve");
+    if (!res) return null;
     if (res.status === 403) fail("The running chalktalk helper has a different token. Restart it.");
-    if (res.status === 200) {
-      out(await res.text());
+    if (res.status === 200) return await res.text();
+  }
+  return null;
+}
+
+// A one-shot waiter, for scripts that want to block until a note arrives.
+async function wait(): Promise<void> {
+  const line = await nextNote(Number(flag("minutes", "30")) * 60);
+  if (line) out(line);
+  else out(JSON.stringify({ status: "timed out" }));
+}
+
+// The long-lived listener behind `start`: it never times out while the session is alive, and it
+// brings the helper back if the helper stopped (idle shutdown, a crash, a restart).
+async function listen(): Promise<void> {
+  for (;;) {
+    const line = await nextNote(60);
+    if (line) {
+      out(line);
       return;
     }
+    if (!(await helperUp()) && (await startHelper())) out("note: the helper had stopped, so I started it again.");
   }
-  out(JSON.stringify({ status: "timed out" }));
 }
 
 async function call(path: string, body: unknown): Promise<void> {
