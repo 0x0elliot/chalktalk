@@ -21,11 +21,20 @@ image. Read the ones you need before the first lesson of a session.
 ## 0. Commands
 
 - `/chalktalk listen`: start the helper if it is off and a waiter for this session (point mode steps 1
-  and 2), then say "Listening. Click Chalktalk on any page." Nothing else. The bookmark's "nobody is
-  listening" message tells the user to paste exactly this.
+  and 2), then run `bun <skill-dir>/desktop.ts start` with `run_in_background: true` (it builds the
+  desktop app the first time, about 5 minutes, and does nothing if it already runs). Then say
+  "Listening. Click Chalktalk on any page, or press <hotkey> anywhere on screen." with the hotkey
+  `desktop.ts` printed (⌃⌥C on a Mac, Ctrl+Alt+C elsewhere), plus its line if it could not start the
+  app. Nothing else. The bookmark's "nobody is listening" message tells the user to paste exactly this.
 - `/chalktalk block <origin>` / `/chalktalk unblock <origin>`: run `bun <skill-dir>/listen.ts block|unblock
   <origin>` for a site the user named, and say what changed.
-- `/chalktalk stop`: run `listen.ts leave`, and `listen.ts stop` only if no other session is listening.
+- `/chalktalk stop`: run `listen.ts leave`, and only if no other session is listening, also
+  `listen.ts stop` and `bun <skill-dir>/desktop.ts stop`.
+- After pulling changes to `desktop/`, `bun <skill-dir>/desktop.ts rebuild` rebuilds and restarts the
+  desktop app.
+
+Write a hotkey the way the user's keyboard labels it: ⌃⌥C (Control+Option) on a Mac, which has no
+Alt key, and Ctrl+Alt+C on Windows and Linux. Cmd+Enter sends a note on a Mac, Ctrl+Enter elsewhere.
 
 ## 1. Ask what they want to understand
 
@@ -87,6 +96,19 @@ Speed matters: the user is waiting at the screen. No fixed waits, no polling.
    `path:line`; it becomes the "underneath" part of the lesson.
 7. Answer with a lesson on their page (below). If you answer in chat instead, run `listen.ts idle`.
 
+**Notes from the desktop app (any app on screen).** A note with `"surface": "screen"` came from the
+Chalktalk desktop app (`desktop/`, a Tauri app for Mac, Windows and Linux), not a web page. Its
+`screen` field holds `app` and `window` (what was in front), `platform`, `screenSize`, `screenshot` (the
+whole screen), `crop` (the circled area plus a 40-point margin, whose top-left is `cropOrigin`), and
+`windowOffset`. Read `crop` with the Read tool first; it shows what they circled. Positions are in the
+overlay's points, which can start below the screen's top edge (the menu bar on a Mac): `windowOffset`
+is how far. There are no selectors and no page text, so:
+- Highlight with `"rect": { "x", "y", "w", "h" }` in overlay points: from `bbox`, or measured on the
+  crop (usually 2 pixels per point; check the crop's size) plus `cropOrigin`. On the full `screenshot`,
+  subtract `windowOffset`. `from` and `to` take rects too.
+- `waitFor` and `text` highlights do not work on screen; describe the click in `say` instead.
+- Everything else works unchanged. Clicks pass through to their apps except on the boards and boxes.
+
 ## 4. The lesson
 
 Write `<dir>/lesson.json` in your scratchpad:
@@ -138,11 +160,40 @@ On the whiteboard (`board`, and `board2` for a second one with
 | `person` | `x, y, label` (a stick figure, about 120 px tall) |
 | `code` | `id, x, y, file, start, lines` |
 | `ring`, `underline` | `code, line, cols, note, noteAt, color` (marks a line of a `code` item) |
+| `image` | `href, x, y, w, h` (a file in the lesson folder by name, or a URL) |
+| `figure` | `x, y, w, h, label, parts, spin, camera` (a 3D model the user can drag to turn; below) |
+
+**3D figures.** Use one when the shape of a thing carries the point: layers stacked on each other, a
+physical device, parts that fit together, a system seen from above. Not for flows; arrows on the
+board do those better. A `figure` is 3 to 15 `parts`, each one line:
+
+```json
+{ "type": "figure", "x": 40, "y": 40, "w": 520, "h": 300, "label": "Three layers", "parts": [
+  { "shape": "box", "size": [4, 0.4, 3], "at": [0, 0.2, 0], "color": "concrete", "label": "Database" },
+  { "shape": "box", "size": [4, 0.4, 3], "at": [0, 0.8, 0], "color": "blue", "material": "gloss", "label": "API" },
+  { "shape": "cylinder", "r": 0.3, "h": 1, "at": [1.4, 1.5, 0.9], "color": "steel" }
+] }
+```
+
+`shape` is `box` (`size: [w, h, d]`, rounded edges), `sphere` (`r`), `cylinder` and `cone` (`r`, `h`),
+`torus` (`r`, `tube`) or `capsule` (`r`, `h`). `at` is the part's centre in world units, `y` up; the
+figure sits on the floor and is framed for you. `turn` is `[x, y, z]` in degrees. `color` is a real
+material colour (`steel`, `brick`, `wood`, `concrete`, `water`, `foliage`, `gold`, `copper`, `glass`,
+`paper`, `plastic`, `rubber`), a palette name in a real-world shade, a brand, or a hex. `material` is
+`matte` (default), `gloss`, `metal` or `glass`. A part's `label` floats above it and follows it as the
+figure turns. It turns slowly until the user drags it (`"spin": false` keeps it still); scrolling zooms.
+Leave labels for the parts the narration names; five at most.
+
+Pictures make a lesson clearer: copy the user's `crop`, a screenshot of a page you opened, or a
+diagram into the lesson folder and show it on the board with an `image` item (`"href": "circle.png"`).
+The helper serves PNG, JPEG, GIF, WebP and SVG from the lesson folder only.
 
 Colors: `ink`, `green`, `red`, `amber`, `blue`, `purple`, `gray`, a brand name, or any CSS color. Brands
 get their live logo (Simple Icons) and color: `meta`, `facebook`, `instagram`, `google`, `ga4`,
 `googleads`, `tiktok`, `snapchat`, `pinterest`, `reddit`, `x`, `shopify`, `woocommerce`, `gmail`, `slack`,
-`zapier`, `hubspot`, `stripe`, `linear`, `github`. Brand every box that stands for a platform. `open` is
+`zapier`, `hubspot`, `stripe`, `linear`, `github`, `gtm`, `youtube`, `whatsapp`, `zappush`. Add your own for one lesson with
+`"brands": { "acme": { "name": "Acme", "color": "#E24B4A", "logo": "acme.svg" } }` at the top level
+(`logo` is a file in the lesson folder, a URL, or a data URI). Brand every box that stands for a platform. `open` is
 `"path:line"`. Cards are solid (white, thin colored border, soft shadow); `"look": "sketch"` gives a
 hand-drawn outline instead.
 
@@ -182,7 +233,8 @@ so; tell the user.
 
 ## Limits
 
-- Pages in Chrome only; the drawing layer is gone on reload.
-- It cannot draw over other desktop apps. For a screenshot, `page.html` draws over the image on a local
-  page instead (scene `background`, sized to the image).
+- The bookmark works in Chrome pages only, and not on sites whose security policy blocks it; the
+  desktop app covers those and every other app.
+- The desktop app needs Rust to build on first use. On Linux with Wayland it runs through XWayland,
+  since Wayland blocks global hotkeys and overlays.
 - The handwriting font comes from Google Fonts; offline it falls back to the system font.

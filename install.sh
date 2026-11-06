@@ -10,6 +10,7 @@ if [ -e "$target" ] && [ ! -L "$target" ]; then
   echo "$target already exists and is not a link; move it away and run this again."
   exit 1
 fi
+(cd "$here" && bun install --production --silent)
 ln -sfn "$here" "$target"
 echo "Installed: $target -> $here"
 echo "Next: in Claude Code, type /chalktalk listen, then add the bookmark from README.md."

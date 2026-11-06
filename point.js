@@ -8,7 +8,8 @@
   const INTERACTIVE =
     'button, a, input, select, textarea, label, [role="switch"], [role="checkbox"], [role="radio"], [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="combobox"], [contenteditable="true"]';
   const CONTEXT = 'tr, li, [role="row"], [role="listitem"], fieldset, form, section, article, [role="dialog"]';
-  const state = { status: "drawing", strokes: [], bbox: null, targets: [], note: "" };
+  const SCREEN = window.__chalktalkScreen || null;
+  const state = { status: "drawing", strokes: [], bbox: null, targets: [], note: "", screen: null };
   const waiters = [];
 
   const layer = document.createElement("div");
@@ -201,41 +202,131 @@
     return scored.slice(0, 5).map((s) => ({ ...describe(s.el), insideCircle: Math.round(s.inside * 100) / 100 }));
   }
 
+  function movable(box, key, onClose) {
+    const storeKey = `chalktalkPos:${key}`;
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px";
+    const grip = document.createElement("div");
+    grip.textContent = "⠿ drag to move";
+    grip.title = "Drag to move. Double-click to put it back.";
+    grip.style.cssText = "flex:1;font:11px system-ui,sans-serif;opacity:.55;cursor:grab;user-select:none;padding-bottom:2px;touch-action:none";
+    head.append(grip);
+    if (onClose) {
+      const shut = document.createElement("button");
+      shut.type = "button";
+      shut.textContent = "✕";
+      shut.title = "Close";
+      shut.style.cssText = "width:22px;height:22px;flex:none;border-radius:50%;border:1px solid currentColor;background:transparent;color:inherit;opacity:.6;font:11px system-ui,sans-serif;cursor:pointer;line-height:1;padding:0";
+      shut.addEventListener("pointerdown", (e) => e.stopPropagation());
+      shut.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onClose();
+      });
+      head.append(shut);
+    }
+    const place = (x, y) => {
+      const r = box.getBoundingClientRect();
+      const left = Math.min(Math.max(8, x), innerWidth - Math.min(r.width, innerWidth - 16) - 8);
+      const top = Math.min(Math.max(8, y), innerHeight - 40);
+      Object.assign(box.style, { left: `${left}px`, top: `${top}px`, right: "auto", bottom: "auto", transform: "none" });
+      return { x: Math.round(left), y: Math.round(top) };
+    };
+    const defaults = box.style.cssText;
+    try {
+      const saved = JSON.parse(localStorage.getItem(storeKey) || "null");
+      if (saved) requestAnimationFrame(() => place(saved.x, saved.y));
+    } catch {}
+    grip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = box.getBoundingClientRect();
+      const dx = e.clientX - r.left;
+      const dy = e.clientY - r.top;
+      grip.setPointerCapture(e.pointerId);
+      grip.style.cursor = "grabbing";
+      let last = null;
+      const move = (ev) => (last = place(ev.clientX - dx, ev.clientY - dy));
+      const up = () => {
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.style.cursor = "grab";
+        try {
+          if (last) localStorage.setItem(storeKey, JSON.stringify(last));
+        } catch {}
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+    });
+    grip.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      try {
+        localStorage.removeItem(storeKey);
+      } catch {}
+      box.style.cssText = defaults;
+    });
+    box.prepend(head);
+    return grip;
+  }
+
   let pill = null;
+  let pillBody = null;
   function showPill(color, text, plan = [], step = 0, reply = "") {
     if (!pill) {
       pill = document.createElement("div");
       pill.style.cssText =
-        "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;padding:12px 18px;border-radius:16px;background:#2c2c2a;color:#fff;font:14px system-ui,sans-serif;z-index:2147483647;box-shadow:0 8px 24px rgba(0,0,0,.25);min-width:320px";
+        "position:fixed;right:24px;top:96px;display:flex;flex-direction:column;gap:6px;padding:10px 16px 12px;border-radius:16px;background:#2c2c2a;color:#fff;font:14px system-ui,sans-serif;z-index:2147483647;box-shadow:0 8px 24px rgba(0,0,0,.25);width:min(380px,calc(100vw - 48px));box-sizing:border-box";
+      pillBody = document.createElement("div");
+      pillBody.style.cssText = "display:flex;flex-direction:column;gap:6px";
+      pill.append(pillBody);
+      movable(pill, "answer", () => {
+        pill.style.display = "none";
+      });
       document.documentElement.append(pill);
     }
-    pill.innerHTML = "";
+    pillBody.innerHTML = "";
     if (reply) {
       const quick = document.createElement("div");
-      quick.style.cssText = "font:19px/1.35 'Patrick Hand',system-ui,sans-serif;max-width:560px;padding-bottom:6px;border-bottom:1px solid #fff2";
+      quick.style.cssText = "font:19px/1.35 'Patrick Hand',system-ui,sans-serif;padding-bottom:6px;border-bottom:1px solid #fff2";
       quick.textContent = `Quick answer: ${reply}`;
-      pill.append(quick);
+      pillBody.append(quick);
     }
     plan.forEach((line, i) => {
       const row = document.createElement("div");
       const n = i + 1;
       row.style.cssText = `display:flex;gap:8px;opacity:${n < step ? 0.55 : n === step ? 1 : 0.7}`;
       const mark = document.createElement("span");
-      mark.style.cssText = `width:16px;text-align:center;color:${n < step ? "#5DCAA5" : n === step ? "#EF9F27" : "#fff8"}`;
-      mark.textContent = n < step ? "✓" : n === step ? "●" : "○";
+      mark.style.cssText = `width:16px;display:flex;align-items:center;justify-content:center;color:${n < step ? "#5DCAA5" : "#fff8"}`;
+      if (n === step) mark.append(spinner());
+      else mark.textContent = n < step ? "✓" : "○";
       const label = document.createElement("span");
       label.textContent = `${n}. ${line}`;
       row.append(mark, label);
-      pill.append(row);
+      pillBody.append(row);
     });
     const head = document.createElement("div");
     head.style.cssText = `display:flex;align-items:center;gap:8px;${plan.length ? "border-top:1px solid #fff2;padding-top:6px;opacity:.8;font-size:13px" : ""}`;
-    const dot = document.createElement("span");
-    dot.style.cssText = `width:9px;height:9px;border-radius:50%;flex:none;background:${color}`;
+    let dot;
+    if (color === "#EF9F27") dot = spinner();
+    else {
+      dot = document.createElement("span");
+      dot.style.cssText = `width:9px;height:9px;border-radius:50%;flex:none;background:${color}`;
+    }
     const words = document.createElement("span");
     words.textContent = text;
     head.append(dot, words);
-    pill.append(head);
+    pillBody.append(head);
+  }
+
+  function spinner() {
+    if (!document.getElementById("chalktalk-spin")) {
+      const css = document.createElement("style");
+      css.id = "chalktalk-spin";
+      css.textContent = "@keyframes chalktalkSpin{to{transform:rotate(360deg)}}";
+      document.head.append(css);
+    }
+    const s = document.createElement("span");
+    s.style.cssText = "display:inline-block;width:10px;height:10px;flex:none;border-radius:50%;border:2px solid #fff3;border-top-color:#fff;animation:chalktalkSpin .8s linear infinite;box-sizing:border-box";
+    return s;
   }
 
   function waitForLesson(until) {
@@ -271,11 +362,21 @@
     waiters.splice(0).forEach((resolve) => resolve(result()));
   }
 
-  function finish() {
+  async function readScreen(box) {
+    const got = await SCREEN.capture(box);
+    if (!got) return;
+    const { elements, ...rest } = got;
+    state.screen = rest;
+    if (box && elements) state.targets = elements;
+  }
+
+  async function finish() {
+    state.status = "reading";
     if (!state.strokes.length) {
       hint.remove();
       layer.style.pointerEvents = "none";
       layer.style.background = "transparent";
+      if (SCREEN) await readScreen(null);
       askNote({ x: innerWidth / 2 + 210, y: 80, w: 0, h: 0 });
       return;
     }
@@ -287,7 +388,8 @@
     hint.remove();
     layer.style.pointerEvents = "none";
     layer.style.background = "transparent";
-    state.targets = findTargets(box);
+    if (SCREEN) await readScreen(state.bbox);
+    else state.targets = findTargets(box);
     askNote(box);
   }
 
@@ -313,6 +415,12 @@
     send.style.cssText = "font:inherit;padding:4px 14px;border-radius:8px;border:0;background:#E24B4A;color:#fff;cursor:pointer";
     foot.append(help, send);
     panel.append(title);
+    movable(panel, "note", () => {
+      panel.remove();
+      stop();
+      settle("cancelled");
+      if (SCREEN) SCREEN.done();
+    });
     if (sessions.length > 1) {
       const pick = document.createElement("select");
       pick.style.cssText = "width:100%;margin-bottom:8px;font:14px system-ui,sans-serif;padding:6px;border-radius:8px;border:1px solid #ccc;background:#fff;color:#2c2c2a";
@@ -333,9 +441,14 @@
       state.note = note.value.trim();
       panel.remove();
       settle("done");
+      svg.style.transition = "opacity 1.2s ease .6s";
+      svg.style.opacity = "0";
       const top = state.targets[0] || {};
+      const where = SCREEN
+        ? `on screen, in ${(state.screen && state.screen.app) || "an app"}${state.screen && state.screen.window ? ` (${state.screen.window})` : ""}${state.screen && state.screen.url ? ` at ${state.screen.url}` : ""}`
+        : `on ${location.href}`;
       const summary = [
-        `Chalktalk: I circled something on ${location.href}`,
+        `Chalktalk: I circled something ${where}`,
         `Circled: ${top.ariaLabel || top.label || top.text || top.tag || "an area"}${top.role ? ` (${top.role}${top.checked ? `, checked=${top.checked}` : ""})` : ""}`,
         top.context ? `In: ${top.context}` : null,
         `Box: ${JSON.stringify(state.bbox)} in a ${innerWidth}x${innerHeight} viewport`,
@@ -352,11 +465,13 @@
         setTimeout(() => toast.remove(), 4000);
       };
       navigator.clipboard.writeText(summary).catch(() => {});
-      const pageText = (document.body.innerText || "").replace(/\n{3,}/g, "\n\n").slice(0, 15000);
+      const pageText = SCREEN
+        ? ((state.screen && state.screen.texts) || []).join("\n")
+        : (document.body.innerText || "").replace(/\n{3,}/g, "\n\n").slice(0, 15000);
       fetch("http://127.0.0.1:47321/point", {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify({ summary, ...result(), strokes: undefined, pageText, to: chosen || undefined, tab: window.__sketchTab }),
+        body: JSON.stringify({ summary, ...result(), strokes: undefined, pageText, surface: SCREEN ? "screen" : "page", to: chosen || undefined, tab: window.__sketchTab }),
       })
         .then((r) => r.json())
         .then((s) => {
@@ -393,6 +508,7 @@
       swallow(e);
       stop();
       settle("cancelled");
+      if (SCREEN) SCREEN.done();
     } else if (e.key === "z" || e.key === "Backspace") {
       swallow(e);
       const last = state.strokes.pop();
@@ -404,8 +520,9 @@
   function result() {
     return {
       status: state.status,
-      url: location.href,
-      title: document.title,
+      url: SCREEN ? (state.screen && state.screen.url) || null : location.href,
+      title: SCREEN ? (state.screen && state.screen.window) || null : document.title,
+      screen: state.screen || undefined,
       viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
       scroll: { x: Math.round(scrollX), y: Math.round(scrollY) },
       note: state.note || null,

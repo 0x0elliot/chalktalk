@@ -83,6 +83,19 @@ type Session = {
   lastOrigin: string;
 };
 
+let threeCode: Promise<string | null> | null = null;
+function threeBundle(): Promise<string | null> {
+  threeCode ??= Bun.build({
+    entrypoints: [new URL("./three.entry.js", import.meta.url).pathname],
+    format: "esm",
+    target: "browser",
+    minify: true,
+  })
+    .then(async (built) => (built.success && built.outputs[0] ? await built.outputs[0].text() : null))
+    .catch(() => null);
+  return threeCode;
+}
+
 async function serve(): Promise<void> {
   const idleHours = Number(flag("hours", "3"));
   const secret = crypto.randomUUID();
@@ -266,6 +279,11 @@ async function serve(): Promise<void> {
           const file = Bun.file(new URL(`./${name}`, import.meta.url));
           return new Response(await file.text(), { headers: { ...headers, "Content-Type": "text/javascript" } });
         }
+        if (req.method === "GET" && pathname === "/three.js") {
+          const code = await threeBundle();
+          if (!code) return new Response("3D library unavailable: run bun install in the chalktalk folder", { status: 503, headers });
+          return new Response(code, { headers: { ...headers, "Content-Type": "text/javascript", "Cache-Control": "max-age=86400" } });
+        }
         const tab = url.searchParams.get("tab");
         if (req.method === "GET" && pathname === "/status") return json(report(asked, tab), 200, headers);
         if (req.method === "GET" && pathname === "/recent") {
@@ -273,8 +291,18 @@ async function serve(): Promise<void> {
           const from = req.headers.get("origin") || "";
           return json(recent.filter((r) => r.path === path && r.origin === from).map(({ id, title }) => ({ id, title })), 200, headers);
         }
-        const audioType = (name: string) => (name.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
-        const recentFile = /^\/recent\/(\d+)(?:\/([\w.-]+\.(?:mp3|wav)))?$/.exec(pathname);
+        const TYPES: Record<string, string> = {
+          mp3: "audio/mpeg",
+          wav: "audio/wav",
+          png: "image/png",
+          jpg: "image/jpeg",
+          jpeg: "image/jpeg",
+          gif: "image/gif",
+          webp: "image/webp",
+          svg: "image/svg+xml",
+        };
+        const audioType = (name: string) => TYPES[name.slice(name.lastIndexOf(".") + 1).toLowerCase()] ?? "application/octet-stream";
+        const recentFile = /^\/recent\/(\d+)(?:\/([\w.-]+\.(?:mp3|wav|png|jpe?g|gif|webp|svg)))?$/i.exec(pathname);
         if (req.method === "GET" && recentFile) {
           const item = recent.find((r) => r.id === recentFile[1]);
           if (!item) return new Response("not found", { status: 404, headers });
@@ -293,7 +321,7 @@ async function serve(): Promise<void> {
           const lesson = (await Bun.file(`${s.lessonDir}/lesson.json`).json()) as Record<string, unknown>;
           return json({ ...lesson, session: s.name }, 200, headers);
         }
-        if (req.method === "GET" && /^\/lesson\/[\w.-]+\.(?:mp3|wav)$/.test(pathname)) {
+        if (req.method === "GET" && /^\/lesson\/[\w.-]+\.(?:mp3|wav|png|jpe?g|gif|webp|svg)$/i.test(pathname)) {
           const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
           const file = s && s.lessonDir ? Bun.file(`${s.lessonDir}/${pathname.slice("/lesson/".length)}`) : null;
           if (!file || !(await file.exists())) return new Response("not found", { status: 404, headers });

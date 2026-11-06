@@ -37,9 +37,190 @@
     stripe: { slug: "stripe", color: "#635BFF", name: "Stripe" },
     linear: { slug: "linear", color: "#5E6AD2", name: "Linear" },
     github: { slug: "github", color: "#181717", name: "GitHub" },
+    gtm: { slug: "googletagmanager", color: "#246FDB", name: "Google Tag Manager" },
+    googletagmanager: { slug: "googletagmanager", color: "#246FDB", name: "Google Tag Manager" },
+    youtube: { slug: "youtube", color: "#FF0000", name: "YouTube" },
+    whatsapp: { slug: "whatsapp", color: "#25D366", name: "WhatsApp" },
+    zappush: {
+      slug: null,
+      color: "#F4A261",
+      name: "Zappush",
+      src:
+        "data:image/svg+xml;utf8," +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="#F4A261"/><text x="100" y="112" text-anchor="middle" dominant-baseline="central" font-family="Arial Narrow, Arial, Helvetica, sans-serif" font-weight="bold" font-size="42" fill="white" letter-spacing="1" font-stretch="condensed">ZAPPUSH</text></svg>',
+        ),
+    },
   };
   const brandOf = (key) => (key ? BRANDS[String(key).toLowerCase().replace(/[\s_-]/g, "")] : null);
   const paint = (c) => PALETTE[c] || (brandOf(c) && brandOf(c).color) || c || PALETTE.ink;
+  const tint = (color, amount) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(color || "");
+    if (!m) return "var(--sketch-card, #ffffff)";
+    const n = parseInt(m[1], 16);
+    const mix = (c) => Math.round(c * amount + 255 * (1 - amount));
+    return `rgb(${mix(n >> 16)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
+  };
+  const REAL = {
+    ink: "#33363d", red: "#b8473d", green: "#5b8f5a", blue: "#3f6fa8", amber: "#d39b3a", purple: "#7a5ea8",
+    gray: "#8c8c8c", grey: "#8c8c8c", white: "#f2f2ef", black: "#232323", steel: "#8a9199", brick: "#a4553f",
+    wood: "#a87b4f", concrete: "#a7a49e", water: "#3f7fb5", foliage: "#5f8d4e", grass: "#6a9a4f", gold: "#c9a24a",
+    copper: "#b87333", paper: "#f3efe6", glass: "#dfe9ef", plastic: "#e8e6e1", rubber: "#2b2b2b",
+  };
+
+  function part3d(T, p) {
+    const s = p.size || [];
+    const num = (v, d) => (typeof v === "number" && isFinite(v) && v > 0 ? v : d);
+    let geo;
+    switch (p.shape || "box") {
+      case "sphere":
+        geo = new T.SphereGeometry(num(p.r, 0.5), 48, 32);
+        break;
+      case "cylinder":
+        geo = new T.CylinderGeometry(num(p.r, 0.5), num(p.r, 0.5), num(p.h, 1), 48);
+        break;
+      case "cone":
+        geo = new T.ConeGeometry(num(p.r, 0.5), num(p.h, 1), 48);
+        break;
+      case "torus":
+        geo = new T.TorusGeometry(num(p.r, 0.5), num(p.tube, 0.15), 24, 64);
+        break;
+      case "capsule":
+        geo = new T.CapsuleGeometry(num(p.r, 0.3), num(p.h, 1), 8, 24);
+        break;
+      default: {
+        const [w, h, d] = [num(s[0], 1), num(s[1], 1), num(s[2], 1)];
+        const r = Math.min(w, h, d) * 0.12;
+        geo = T.RoundedBoxGeometry ? new T.RoundedBoxGeometry(w, h, d, 4, r) : new T.BoxGeometry(w, h, d);
+      }
+    }
+    const brand = brandOf(p.brand);
+    const color = REAL[p.color] || (brand && brand.color) || (brandOf(p.color) && brandOf(p.color).color) || p.color || "#d9d4ca";
+    const kind = p.material || (p.color === "glass" ? "glass" : p.color === "steel" || p.color === "gold" || p.color === "copper" ? "metal" : "matte");
+    const mat =
+      kind === "glass"
+        ? new T.MeshPhysicalMaterial({ color, transmission: 1, roughness: 0.06, thickness: 0.4, ior: 1.45, transparent: true })
+        : kind === "metal"
+          ? new T.MeshStandardMaterial({ color, metalness: 1, roughness: 0.32 })
+          : kind === "gloss"
+            ? new T.MeshPhysicalMaterial({ color, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.08 })
+            : new T.MeshPhysicalMaterial({ color, roughness: 0.62, clearcoat: 0.12 });
+    const mesh = new T.Mesh(geo, mat);
+    const at = Array.isArray(p.at) ? p.at : [0, 0, 0];
+    mesh.position.set(+at[0] || 0, +at[1] || 0, +at[2] || 0);
+    const turn = Array.isArray(p.turn) ? p.turn : [0, 0, 0];
+    mesh.rotation.set(((+turn[0] || 0) * Math.PI) / 180, ((+turn[1] || 0) * Math.PI) / 180, ((+turn[2] || 0) * Math.PI) / 180);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  async function figure3d(host, it, url) {
+    const note = (text) => {
+      host.textContent = text;
+      host.style.cssText += ";display:flex;align-items:center;justify-content:center;font:16px system-ui,sans-serif;color:#7E838D";
+    };
+    if (!url) return note("3D figures need the Chalktalk helper running.");
+    let T;
+    try {
+      T = await import(url);
+    } catch {
+      return note("The 3D library didn't load.");
+    }
+    const canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab";
+    host.append(canvas);
+    let renderer;
+    try {
+      renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    } catch {
+      canvas.remove();
+      return note("This screen can't draw 3D (WebGL is off).");
+    }
+    renderer.setPixelRatio(Math.min(2, global.devicePixelRatio || 1));
+    renderer.toneMapping = T.AgXToneMapping ?? T.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = T.PCFSoftShadowMap;
+    const scene = new T.Scene();
+    const pmrem = new T.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new T.RoomEnvironment(), 0.04).texture;
+    const group = new T.Group();
+    scene.add(group);
+    const tags = [];
+    (it.parts || []).slice(0, 60).forEach((p) => {
+      const mesh = part3d(T, p);
+      group.add(mesh);
+      if (p.label) {
+        const tag = document.createElement("div");
+        tag.textContent = p.label;
+        tag.style.cssText =
+          "position:absolute;transform:translate(-50%,-100%);padding:2px 10px;border-radius:999px;background:rgba(251,250,246,.92);color:#30333A;font:16px 'Patrick Hand',system-ui,sans-serif;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)";
+        host.append(tag);
+        tags.push({ mesh, tag });
+      }
+    });
+    const bounds = new T.Box3().setFromObject(group);
+    const size = bounds.getSize(new T.Vector3());
+    const center = bounds.getCenter(new T.Vector3());
+    group.position.set(-center.x, -bounds.min.y, -center.z);
+    const radius = Math.max(0.5, size.length() / 2);
+    const ground = new T.Mesh(new T.PlaneGeometry(radius * 10, radius * 10), new T.ShadowMaterial({ opacity: 0.18 }));
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+    scene.add(new T.HemisphereLight(0xffffff, 0x8a8a8a, 0.5));
+    const sun = new T.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(radius * 2, radius * 3.2, radius * 1.6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.bias = -0.0005;
+    Object.assign(sun.shadow.camera, { left: -radius * 2, right: radius * 2, top: radius * 2, bottom: -radius * 2, near: 0.1, far: radius * 10 });
+    scene.add(sun);
+    const camera = new T.PerspectiveCamera(35, 1, 0.01, radius * 40);
+    const eye = Array.isArray(it.camera) ? it.camera : [radius * 2.1, radius * 1.4, radius * 2.6];
+    camera.position.set(+eye[0], +eye[1], +eye[2]);
+    const controls = new T.OrbitControls(camera, canvas);
+    controls.target.set(0, size.y / 2, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enablePan = false;
+    controls.minDistance = radius * 1.1;
+    controls.maxDistance = radius * 7;
+    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.autoRotate = it.spin !== false;
+    controls.autoRotateSpeed = 1.4;
+    controls.addEventListener("start", () => {
+      controls.autoRotate = false;
+      canvas.style.cursor = "grabbing";
+    });
+    controls.addEventListener("end", () => (canvas.style.cursor = "grab"));
+    const fit = () => {
+      const w = host.clientWidth || 1;
+      const h = host.clientHeight || 1;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    fit();
+    if (global.ResizeObserver) new ResizeObserver(fit).observe(host);
+    const v = new T.Vector3();
+    renderer.setAnimationLoop(() => {
+      if (!host.isConnected) {
+        renderer.setAnimationLoop(null);
+        renderer.dispose();
+        return;
+      }
+      controls.update();
+      renderer.render(scene, camera);
+      tags.forEach(({ mesh, tag }) => {
+        const box = new T.Box3().setFromObject(mesh);
+        v.set((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2).project(camera);
+        tag.style.left = `${((v.x + 1) / 2) * host.clientWidth}px`;
+        tag.style.top = `${((1 - v.y) / 2) * host.clientHeight - 6}px`;
+      });
+    });
+  }
 
   function logo(parent, brand, x, y, size) {
     const b = brandOf(brand);
@@ -143,10 +324,25 @@
       parent,
     );
     t.style.whiteSpace = "pre";
+    if (opts.halo) {
+      t.setAttribute("stroke", "var(--sketch-paper, #fbfaf6)");
+      t.setAttribute("stroke-width", "5");
+      t.setAttribute("stroke-linejoin", "round");
+      t.setAttribute("paint-order", "stroke");
+    }
     lines.forEach((line, i) => {
       const span = make("tspan", { x, dy: i ? "1.15em" : `${-(lines.length - 1) * 0.575}em` }, t);
       span.textContent = line;
     });
+    if (opts.maxWidth) {
+      let size = opts.size || 20;
+      try {
+        while (size > 11 && t.getComputedTextLength() > opts.maxWidth) {
+          size -= 1;
+          t.setAttribute("font-size", size);
+        }
+      } catch {}
+    }
     return t;
   }
 
@@ -155,7 +351,42 @@
     const out = [];
     if (it.brand && !it.color) it.color = brandOf(it.brand) ? brandOf(it.brand).color : undefined;
     const ink = paint(it.color);
+    const pen = (d) => {
+      const defs = svg.querySelector("defs");
+      const id = `sk-pen-${Math.random().toString(36).slice(2, 9)}`;
+      const mask = make("mask", { id, maskUnits: "userSpaceOnUse" }, defs);
+      const guide = make("path", { d, fill: "none", stroke: "#fff", "stroke-linecap": "round", "stroke-linejoin": "round" }, mask);
+      let L = 0;
+      try {
+        L = guide.getTotalLength();
+      } catch {}
+      if (!(L > 1)) {
+        mask.remove();
+        return false;
+      }
+      const half = (it.weight || 2.4) * 0.66;
+      const n = Math.max(6, Math.min(140, Math.round(L / 4)));
+      const left = [];
+      const right = [];
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const a = guide.getPointAtLength(Math.max(0, t * L - 0.6));
+        const b = guide.getPointAtLength(Math.min(L, t * L + 0.6));
+        const p = guide.getPointAtLength(t * L);
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        const nx = -(b.y - a.y) / len;
+        const ny = (b.x - a.x) / len;
+        const w = half * (0.42 + 0.58 * Math.pow(Math.sin(Math.PI * t), 0.55)) * (1 + rand() * 0.12);
+        left.push(`${(p.x + nx * w).toFixed(1)} ${(p.y + ny * w).toFixed(1)}`);
+        right.push(`${(p.x - nx * w).toFixed(1)} ${(p.y - ny * w).toFixed(1)}`);
+      }
+      guide.setAttribute("stroke-width", half * 3 + 4);
+      make("path", { d: `M${left.join(" L")} L${right.reverse().join(" L")} Z`, fill: ink, mask: `url(#${id})` }, g);
+      out.push({ node: guide, kind: "stroke", at: it.at });
+      return true;
+    };
     const stroke = (d, dashed) => {
+      if (!dashed && svg.dataset.pen !== "even" && pen(d)) return;
       const p = make(
         "path",
         {
@@ -178,7 +409,7 @@
       out.push({ node, kind: "fade", at: it.at, rise: true });
     };
     const card = (x, y, w, h, r) =>
-      cardStyle(make("rect", { x, y, width: w, height: h, rx: r, fill: "var(--sketch-card, #ffffff)", stroke: ink, "stroke-width": 1.5 }, g));
+      cardStyle(make("rect", { x, y, width: w, height: h, rx: r, fill: it.color ? tint(ink, 0.08) : "var(--sketch-card, #ffffff)", stroke: ink, "stroke-width": 1.5 }, g));
     const dot = (cx, cy, r) =>
       cardStyle(make("circle", { cx, cy, r, fill: "var(--sketch-card, #ffffff)", stroke: ink, "stroke-width": 1.5 }, g));
     const label = (text, x, y, opts) => fade(write(g, { color: it.color, ...opts, text }, x, y));
@@ -191,8 +422,9 @@
         else stroke(wobble(rand, [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x + 3, y - 2]], 1.4));
         const shift = it.brand ? 16 : 0;
         if (it.brand) fade(logo(g, it.brand, x + 10, y + h / 2 - 13, 26));
-        if (it.label) label(it.label, x + w / 2 + shift, y + h / 2 - (it.sub ? 11 : 0), { size: it.size || 22 });
-        if (it.sub) label(it.sub, x + w / 2 + shift, y + h / 2 + 15, { size: 16, color: it.subColor || "gray" });
+        const room = w - 20 - shift * 2;
+        if (it.label) label(it.label, x + w / 2 + shift, y + h / 2 - (it.sub ? 11 : 0), { size: it.size || 22, maxWidth: room });
+        if (it.sub) label(it.sub, x + w / 2 + shift, y + h / 2 + 15, { size: 16, color: it.subColor || "gray", maxWidth: room });
         break;
       }
       case "logo": {
@@ -235,7 +467,7 @@
         const rx = it.rx || it.r;
         const ry = it.ry || it.r;
         stroke(wobble(rand, oval(it.cx, it.cy, rx, ry), 1.2));
-        if (it.label) label(it.label, it.cx, it.cy + ry + 22, { size: 18 });
+        if (it.label) label(it.label, it.cx, it.cy + ry + 22, { size: 18, halo: true });
         break;
       }
       case "arrow": {
@@ -243,8 +475,19 @@
         stroke(shaft);
         stroke(head);
         if (it.label) {
-          const at = it.labelAt || [(it.from[0] + it.to[0]) / 2, (it.from[1] + it.to[1]) / 2 - 18];
-          label(it.label, at[0], at[1], { size: 18 });
+          const midX = (it.from[0] + it.to[0]) / 2;
+          const midY = (it.from[1] + it.to[1]) / 2;
+          const upright = Math.abs(it.to[1] - it.from[1]) > Math.abs(it.to[0] - it.from[0]);
+          const tw = String(it.label).length * 8.5;
+          const spots = upright
+            ? [[midX + 12, midY, "start"], [midX - 12, midY, "end"]]
+            : [[midX, midY - 18], [midX, midY + 20]];
+          const clear = ([x, y, anchor]) => {
+            const x0 = anchor === "start" ? x : anchor === "end" ? x - tw : x - tw / 2;
+            return !(svg.__boxes || []).some((r) => x0 < r.x + r.w && r.x < x0 + tw && y - 11 < r.y + r.h && r.y < y + 11);
+          };
+          const [lx, ly, anchor] = it.labelAt ? [...it.labelAt] : spots.find(clear) || spots[0];
+          label(it.label, lx, ly, { size: 18, halo: true, anchor });
         }
         break;
       }
@@ -252,7 +495,7 @@
         stroke(wobble(rand, it.points, 1.2), it.dashed);
         break;
       case "text":
-        label(it.text, it.x, it.y, { size: it.size, anchor: it.anchor, mono: it.mono });
+        label(it.text, it.x, it.y, { size: it.size, anchor: it.anchor, mono: it.mono, halo: true });
         break;
       case "person": {
         const { x, y } = it;
@@ -295,6 +538,17 @@
         }
         break;
       }
+      case "figure": {
+        const { x, y, w, h } = it;
+        const fo = make("foreignObject", { x, y, width: w, height: h }, g);
+        const host = document.createElement("div");
+        host.style.cssText = "position:relative;width:100%;height:100%;overflow:hidden";
+        fo.append(host);
+        fade(fo);
+        figure3d(host, it, svg.dataset.three);
+        if (it.label) label(it.label, x + w / 2, y + h + 16, { size: 18, halo: true });
+        break;
+      }
       case "image":
         fade(make("image", { href: it.href, x: it.x || 0, y: it.y || 0, width: it.w, height: it.h, preserveAspectRatio: "xMidYMid meet" }, g));
         break;
@@ -304,6 +558,32 @@
       g.addEventListener("click", () => open(it.open));
     }
     return out;
+  }
+
+  function layout(scene, W, H) {
+    const items = (scene.steps || []).flatMap((s) => s.items || []);
+    const ends = items.flatMap((it) =>
+      it.type === "arrow" ? [it.from, it.to] : it.type === "line" ? it.points || [] : it.type === "bubble" && it.to ? [it.to] : [],
+    );
+    const near = (r, pad) => ends.some((p) => Array.isArray(p) && p[0] > r.x - pad && p[0] < r.x + r.w + pad && p[1] > r.y - pad && p[1] < r.y + r.h + pad);
+    const gap = 10;
+    const placed = [];
+    const hit = (r) => placed.find((p) => r.x < p.x + p.w + gap && p.x < r.x + r.w + gap && r.y < p.y + p.h + gap && p.y < r.y + r.h + gap);
+    items.forEach((it) => {
+      if (!["box", "bubble", "figure"].includes(it.type) || ![it.x, it.y, it.w, it.h].every(Number.isFinite)) return;
+      const r = { x: it.x, y: it.y, w: it.w, h: it.h };
+      if (!near(r, 24)) {
+        for (let tries = 0, other = hit(r); other && tries < 6; tries++, other = hit(r)) {
+          if (other.y + other.h + gap + r.h <= H) r.y = other.y + other.h + gap;
+          else if (other.x + other.w + gap + r.w <= W) r.x = other.x + other.w + gap;
+          else break;
+        }
+        it.x = r.x;
+        it.y = r.y;
+      }
+      placed.push(r);
+    });
+    return placed;
   }
 
   function mount(container, scene) {
@@ -326,8 +606,11 @@
     make("feDropShadow", { dx: 0, dy: 4, stdDeviation: 6, "flood-color": "#1b1b18", "flood-opacity": 0.12 }, filter);
     svg.dataset.shadow = shadowId;
     svg.dataset.look = scene.look || "solid";
+    svg.dataset.pen = scene.pen || "felt";
+    if (scene.three || global.CHALKTALK_THREE) svg.dataset.three = scene.three || global.CHALKTALK_THREE;
     svg.style.display = "block";
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
+    svg.__boxes = layout(scene, W, H);
     const steps = (scene.steps || []).map((step) => (step.items || []).flatMap((it) => build(svg, it, rand, codes, open)));
 
     const bar = document.createElement("div");

@@ -2,6 +2,9 @@
   "name": "chalktalk",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "three": "0.187.0"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   }

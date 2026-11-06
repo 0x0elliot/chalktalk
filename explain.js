@@ -49,6 +49,7 @@
   }
 
   function resolve(h) {
+    if (h.rect) return { kind: "box", rects: [new DOMRect(h.rect.x, h.rect.y, h.rect.w, h.rect.h)], scrollTo: null };
     if (h.text) {
       const range = findText(h.text);
       return range ? { kind: "text", range, rects: [...range.getClientRects()], scrollTo: range.startContainer.parentElement } : null;
@@ -73,6 +74,7 @@
     if (window.__sketchExplainClose) window.__sketchExplainClose();
     if (window.__sketchPoint && window.__sketchPoint.active) window.__sketchPoint.stop();
     await load("/engine.js");
+    window.CHALKTALK_THREE = `${BASE}/three.js`;
     const palette = window.Chalktalk.palette;
     const steps = lesson.steps || [];
     const SESSION = lesson.session || window.__sketchSession || "";
@@ -90,6 +92,13 @@
     } catch {}
     const q = `?tab=${TAB}${SESSION ? `&session=${encodeURIComponent(SESSION)}` : ""}`;
     const n = steps.length;
+    const asset = (href) => (!href || /^(https?:|data:|blob:)/.test(href) ? href : `${BASE}${lesson.assetBase || "/lesson/"}${href}${q}`);
+    Object.entries(lesson.brands || {}).forEach(([key, b]) => {
+      window.Chalktalk.brands[key.toLowerCase().replace(/[\s_-]/g, "")] = { name: b.name || key, color: b.color || "#2c2c2a", src: asset(b.logo) };
+    });
+    ["board", "board2"].forEach((key) =>
+      steps.forEach((s) => (s[key] || []).forEach((it) => it.type === "image" && (it.href = asset(it.href)))),
+    );
 
     if (!document.querySelector("link[data-sketch-font]")) {
       const font = document.createElement("link");
@@ -105,12 +114,17 @@
     const marks = document.createElementNS(NS, "svg");
     marks.setAttribute("width", "100%");
     marks.setAttribute("height", "100%");
-    marks.style.cssText = "position:absolute;inset:0;overflow:visible";
+    marks.style.cssText =
+      "position:absolute;inset:0;overflow:visible;filter:drop-shadow(0 0 2px rgba(255,255,255,.9)) drop-shadow(0 1px 4px rgba(0,0,0,.22))";
     root.append(marks);
 
+    const safe = { top: 0, right: 0, bottom: 0, left: 0, ...(window.__chalktalkSafe || {}) };
     const boardKeys = ["board", "board2"].filter((key) => steps.some((s) => s[key] && s[key].length));
     const panels = [];
     const engines = [];
+    let column = null;
+    let homeColumn = () => {};
+    let columnMoved = false;
     if (boardKeys.length) {
       let side = window.__sketchSide;
       if (!side) {
@@ -136,15 +150,31 @@
         sessionStorage.setItem("sketchSide", side);
       } catch {}
       const away = side === "left" ? "-115%" : "115%";
-      const column = document.createElement("div");
-      column.style.cssText = `position:absolute;top:16px;bottom:150px;${side}:16px;width:min(46vw,640px);display:flex;flex-direction:column;gap:12px;pointer-events:none`;
+      column = document.createElement("div");
+      column.style.cssText = "position:absolute;display:flex;flex-direction:column;gap:12px;pointer-events:none";
+      homeColumn = () => {
+        Object.assign(column.style, { left: "", right: "", top: `${16 + safe.top}px`, bottom: `${16 + safe.bottom}px`, width: "min(46vw,640px)", height: "" });
+        column.style[side] = `${16 + safe[side]}px`;
+      };
+      homeColumn();
       const hide = document.createElement("style");
       hide.textContent = "[data-sketch-board] .sketch-bar,[data-sketch-board] .sketch-say,[data-sketch-board] .sketch-followups{display:none!important}";
       column.append(hide);
       boardKeys.forEach((key, k) => {
         const meta = (lesson.boards && lesson.boards[k]) || (k === 0 ? lesson.board : null) || {};
         const panel = document.createElement("div");
-        panel.style.cssText = `flex:1;min-height:0;background:#fbfaf6;color:#2c2c2a;border:1px solid #8885;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);pointer-events:auto;overflow:auto;padding:12px 16px;box-sizing:border-box;--sketch-ink:#2c2c2a;opacity:0;transform:translateX(${away});transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .5s ease`;
+        panel.style.cssText = `position:relative;flex:1;min-height:0;background:#fbfaf6;color:#2c2c2a;border:1px solid #8885;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);pointer-events:auto;overflow:auto;padding:12px 16px;box-sizing:border-box;--sketch-ink:#2c2c2a;--sketch-paper:#fbfaf6;opacity:0;transform:translateX(${away});transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .5s ease`;
+        const shut = document.createElement("button");
+        shut.type = "button";
+        shut.textContent = "✕";
+        shut.title = "Close this whiteboard";
+        shut.style.cssText = "position:absolute;top:8px;right:10px;z-index:1;width:26px;height:26px;border-radius:50%;border:1px solid #8886;background:#fff;color:#2c2c2a;font:13px system-ui,sans-serif;cursor:pointer;line-height:1";
+        shut.addEventListener("click", (e) => {
+          e.stopPropagation();
+          panel.style.display = "none";
+          if (panels.every((p) => p.style.display === "none")) column.style.display = "none";
+        });
+        panel.append(shut);
         if (meta.title) {
           const title = document.createElement("div");
           title.textContent = meta.title;
@@ -182,13 +212,51 @@
       };
       try {
         const saved = JSON.parse(sessionStorage.getItem("sketchBoardPos") || "null");
-        if (saved) requestAnimationFrame(() => place(saved.x, saved.y));
+        const size = JSON.parse(sessionStorage.getItem("sketchBoardSize") || "null");
+        if (saved || size) {
+          columnMoved = true;
+          requestAnimationFrame(() => {
+            if (size) Object.assign(column.style, { width: `${size.w}px`, height: `${size.h}px`, bottom: "auto" });
+            const r = column.getBoundingClientRect();
+            place(saved ? saved.x : r.left, saved ? saved.y : r.top);
+          });
+        }
       } catch {}
+      const sizer = document.createElement("div");
+      sizer.title = "Drag to resize the whiteboard";
+      sizer.textContent = "⇲";
+      sizer.style.cssText =
+        "position:absolute;right:-6px;bottom:-6px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#2c2c2a;color:#fff;font:13px system-ui,sans-serif;cursor:nwse-resize;pointer-events:auto;touch-action:none;user-select:none;z-index:2";
+      column.append(sizer);
+      sizer.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        sizer.setPointerCapture(e.pointerId);
+        columnMoved = true;
+        const start = column.getBoundingClientRect();
+        place(start.left, start.top);
+        const move = (ev) => {
+          const w = Math.max(280, Math.min(innerWidth - start.left - 8, start.width + ev.clientX - e.clientX));
+          const h = Math.max(200, Math.min(innerHeight - start.top - 8 - safe.bottom, start.height + ev.clientY - e.clientY));
+          Object.assign(column.style, { width: `${w}px`, height: `${h}px` });
+        };
+        const up = () => {
+          sizer.removeEventListener("pointermove", move);
+          sizer.removeEventListener("pointerup", up);
+          const r = column.getBoundingClientRect();
+          try {
+            sessionStorage.setItem("sketchBoardSize", JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height) }));
+          } catch {}
+        };
+        sizer.addEventListener("pointermove", move);
+        sizer.addEventListener("pointerup", up);
+      });
       grip.addEventListener("pointerdown", (e) => {
         e.preventDefault();
         e.stopPropagation();
         grip.setPointerCapture(e.pointerId);
         grip.style.cursor = "grabbing";
+        columnMoved = true;
         const start = column.getBoundingClientRect();
         const dx = e.clientX - start.left;
         const dy = e.clientY - start.top;
@@ -206,22 +274,87 @@
         grip.addEventListener("pointerup", up);
       });
       grip.addEventListener("dblclick", () => {
-        Object.assign(column.style, { left: "", top: "16px", right: "", bottom: "150px", width: "min(46vw,640px)", height: "" });
-        column.style[side] = "16px";
+        columnMoved = false;
+        homeColumn();
+        dodgeBar();
         try {
           sessionStorage.removeItem("sketchBoardPos");
+          sessionStorage.removeItem("sketchBoardSize");
         } catch {}
       });
       root.append(column);
     }
 
     const bar = document.createElement("div");
-    bar.style.cssText =
-      "position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;width:min(94vw,820px);padding:12px 14px;border-radius:18px;background:#2c2c2a;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);pointer-events:auto;box-sizing:border-box";
+    const barHome = `position:absolute;right:${24 + safe.right}px;top:${16 + safe.top}px;display:flex;flex-direction:column;gap:8px;width:min(400px,calc(100vw - 48px));padding:10px 14px 12px;border-radius:16px;background:#2c2c2a;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);pointer-events:auto;box-sizing:border-box;font:14px system-ui,sans-serif`;
+    bar.style.cssText = barHome;
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;gap:8px";
+    const barGrip = document.createElement("div");
+    barGrip.textContent = "⠿ drag to move";
+    barGrip.title = "Drag to move. Double-click to put it back.";
+    barGrip.style.cssText = "flex:1;font:11px system-ui,sans-serif;opacity:.55;cursor:grab;user-select:none;touch-action:none";
+    const barShut = document.createElement("button");
+    barShut.type = "button";
+    barShut.textContent = "✕";
+    barShut.title = "Close everything";
+    barShut.style.cssText = "width:22px;height:22px;flex:none;border-radius:50%;border:1px solid #fff8;background:transparent;color:#fff;opacity:.75;font:11px system-ui,sans-serif;cursor:pointer;line-height:1;padding:0";
+    barShut.addEventListener("click", (e) => {
+      e.stopPropagation();
+      end();
+    });
+    head.append(barGrip, barShut);
+    const placeBar = (x, y) => {
+      const r = bar.getBoundingClientRect();
+      const left = Math.max(8, Math.min(innerWidth - r.width - 8, x));
+      const top = Math.max(8 + safe.top, Math.min(innerHeight - r.height - 8 - safe.bottom, y));
+      Object.assign(bar.style, { left: `${left}px`, top: `${top}px`, right: "auto" });
+      return { x: Math.round(left), y: Math.round(top) };
+    };
+    try {
+      const saved = JSON.parse(localStorage.getItem("chalktalkPos:player") || "null");
+      if (saved) requestAnimationFrame(() => placeBar(saved.x, saved.y));
+    } catch {}
+    barGrip.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      barGrip.setPointerCapture(e.pointerId);
+      const r = bar.getBoundingClientRect();
+      const dx = e.clientX - r.left;
+      const dy = e.clientY - r.top;
+      let last = null;
+      const move = (ev) => {
+        last = placeBar(ev.clientX - dx, ev.clientY - dy);
+        dodgeBar();
+      };
+      const up = () => {
+        barGrip.removeEventListener("pointermove", move);
+        barGrip.removeEventListener("pointerup", up);
+        try {
+          if (last) localStorage.setItem("chalktalkPos:player", JSON.stringify(last));
+        } catch {}
+      };
+      barGrip.addEventListener("pointermove", move);
+      barGrip.addEventListener("pointerup", up);
+    });
+    barGrip.addEventListener("dblclick", () => {
+      bar.style.cssText = barHome;
+      try {
+        localStorage.removeItem("chalktalkPos:player");
+      } catch {}
+      dodgeBar();
+    });
+    function dodgeBar() {
+      if (!column || columnMoved) return;
+      homeColumn();
+      const b = bar.getBoundingClientRect();
+      const c = column.getBoundingClientRect();
+      if (b.left < c.right && c.left < b.right && b.top < c.bottom && c.top < b.bottom) column.style.top = `${Math.round(b.bottom + 12)}px`;
+    }
     const top = document.createElement("div");
-    top.style.cssText = "display:flex;align-items:center;gap:10px;min-width:0";
+    top.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0";
     const bottom = document.createElement("div");
-    bottom.style.cssText = "display:flex;align-items:center;gap:6px";
+    bottom.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap";
     const light = document.createElement("span");
     light.style.cssText = "display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;opacity:.9";
     const dot = document.createElement("span");
@@ -236,7 +369,7 @@
     extra.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
     const ask = document.createElement("input");
     ask.placeholder = "Ask about this… (talk with Wispr, Enter to send)";
-    ask.style.cssText = "flex:1;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid #fff4;background:#fff1;color:#fff;outline:none";
+    ask.style.cssText = "flex:1 1 100%;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid #fff4;background:#fff1;color:#fff;outline:none;box-sizing:border-box";
     let current = 0;
     let paused = false;
     let audio = null;
@@ -250,22 +383,41 @@
       pause.textContent = "Pause";
       go(0);
     });
-    const close = button("Close", () => end());
+    const clear = button("Clear", () => fadeMarks(0));
+    clear.title = "Wipe the drawings off the page";
+    const close = button("Close all ✕", () => end());
     top.append(light, count, caption, extra);
-    bottom.append(ask, back, pause, next, replay, close);
-    bar.append(top, bottom);
+    bottom.append(ask, back, pause, next, replay, clear, close);
+    let fadeTimer = 0;
+    function fadeMarks(delay) {
+      clearTimeout(fadeTimer);
+      fadeTimer = setTimeout(() => {
+        marks.style.transition = "opacity 1.5s ease";
+        marks.style.opacity = "0";
+      }, delay);
+    }
+    function showMarks() {
+      clearTimeout(fadeTimer);
+      marks.style.transition = "none";
+      marks.style.opacity = "1";
+    }
+    const finished = () => fadeMarks(4000);
+    bar.append(head, top, bottom);
     root.append(bar);
+    requestAnimationFrame(dodgeBar);
+    if (window.ResizeObserver) new ResizeObserver(() => dodgeBar()).observe(bar);
 
     let lightTimer = null;
-    function paint(color, text, pulse) {
-      dot.style.background = color;
-      dot.style.animation = pulse ? "sketchPulse 1.2s ease-in-out infinite" : "none";
+    function paint(color, text, busy) {
+      dot.style.cssText = busy
+        ? "width:9px;height:9px;flex:none;border-radius:50%;border:2px solid #fff3;border-top-color:#fff;animation:sketchSpin .8s linear infinite"
+        : `width:9px;height:9px;border-radius:50%;flex:none;background:${color}`;
       lightText.textContent = text;
     }
     if (!document.getElementById("sketch-pulse")) {
       const css = document.createElement("style");
       css.id = "sketch-pulse";
-      css.textContent = "@keyframes sketchPulse{0%,100%{opacity:1}50%{opacity:.3}}";
+      css.textContent = "@keyframes sketchSpin{to{transform:rotate(360deg)}}";
       document.head.append(css);
     }
     async function checkStatus() {
@@ -602,6 +754,7 @@
             track.onended = () => {
               cancelAnimationFrame(follow);
               if (current !== n - 1) go(n - 1, true);
+              if (!steps[n - 1].ask) finished();
             };
             return track;
           })
@@ -627,6 +780,7 @@
 
     async function go(i, fromTrack = false) {
       token++;
+      showMarks();
       if (!timeline) stopVoice();
       current = Math.max(0, Math.min(n - 1, i));
       const step = steps[current];
@@ -660,7 +814,7 @@
       }
       const first = (step.highlight || []).flatMap((h) => (h.from && h.to ? [h.from, h.to] : [h])).map(resolve).find(Boolean);
       const shown = first && first.rects[0] && first.rects[0].top >= 0 && first.rects[0].bottom <= innerHeight - 160;
-      if (first && !shown) {
+      if (first && first.scrollTo && !shown) {
         first.scrollTo.scrollIntoView({ block: "center", behavior: "smooth" });
         if (!timeline) await sleep(450);
       }
@@ -697,6 +851,7 @@
         step,
         () => {
           if (mine === token && !paused && current < n - 1 && !step.ask) timer = setTimeout(() => go(current + 1), 250);
+          else if (mine === token && current === n - 1 && !step.ask) finished();
         },
         drawBoard,
       );
@@ -730,8 +885,9 @@
     window.addEventListener("resize", redraw);
     window.addEventListener("keydown", onKey, true);
 
-    function end() {
+    function end(replacing = false) {
       token++;
+      clearTimeout(fadeTimer);
       stopVoice();
       clearTimeout(lightTimer);
       clearInterval(waitTimer);
@@ -740,8 +896,9 @@
       window.removeEventListener("keydown", onKey, true);
       root.remove();
       window.__sketchExplainClose = null;
+      if (!replacing && window.__chalktalkScreen) window.__chalktalkScreen.done();
     }
-    window.__sketchExplainClose = end;
+    window.__sketchExplainClose = () => end(true);
 
     checkStatus();
     go(0);
