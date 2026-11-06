@@ -63,7 +63,8 @@ XWayland.
 1. Click **Chalktalk** on any page (or press the desktop hotkey). The page dims slightly.
 2. Circle what you mean, or press Enter without circling to ask about the whole page.
 3. Talk or type your question in the box (dictation apps type straight in), then press Cmd+Enter.
-4. A box on the right shows "Claude is thinking", a one-line answer, and a numbered plan. The
+4. A box on the right shows "<your model> is thinking", a one-line answer, and a numbered plan (the name
+   comes from `--as`, so it says "DeepSeek V4.1 Flash is thinking" or "Claude is thinking"). The
    explanation then plays where you asked, with Back, Pause, Next, Replay, Clear, Close all, and an Ask
    box for follow-ups. Drawings fade a few seconds after it ends. Every box can be dragged by its
    "⠿ drag to move" grip (double-click puts it back) and closed with its ✕.

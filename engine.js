@@ -302,7 +302,8 @@
     const cy = (y0 + y1) / 2 + ((x1 - x0) / len) * bend;
     const shaft = `M${x0} ${y0} Q${cx + rand() * 3} ${cy + rand() * 3} ${x1} ${y1}`;
     const ang = Math.atan2(y1 - cy, x1 - cx);
-    const wing = (s) => [x1 - 13 * Math.cos(ang + s * 0.45), y1 - 13 * Math.sin(ang + s * 0.45)];
+    const size = it.head || 13;
+    const wing = (s) => [x1 - size * Math.cos(ang + s * 0.45), y1 - size * Math.sin(ang + s * 0.45)];
     const [ax, ay] = wing(1);
     const [bx, by] = wing(-1);
     return [shaft, `M${ax} ${ay} L${x1} ${y1} L${bx} ${by}`];
@@ -326,7 +327,7 @@
     t.style.whiteSpace = "pre";
     if (opts.halo) {
       t.setAttribute("stroke", "var(--sketch-paper, #fbfaf6)");
-      t.setAttribute("stroke-width", "5");
+      t.setAttribute("stroke-width", String(opts.haloWidth || 5));
       t.setAttribute("stroke-linejoin", "round");
       t.setAttribute("paint-order", "stroke");
     }
@@ -347,7 +348,7 @@
   }
 
   function build(svg, it, rand, codes, open) {
-    const g = make("g", {}, svg);
+    let g = make("g", {}, svg);
     const out = [];
     if (it.brand && !it.color) it.color = brandOf(it.brand) ? brandOf(it.brand).color : undefined;
     const ink = paint(it.color);
@@ -413,6 +414,50 @@
     const dot = (cx, cy, r) =>
       cardStyle(make("circle", { cx, cy, r, fill: "var(--sketch-card, #ffffff)", stroke: ink, "stroke-width": 1.5 }, g));
     const label = (text, x, y, opts) => fade(write(g, { color: it.color, ...opts, text }, x, y));
+    const mapRegion = (rec, r) => {
+      const features = rec.lookup(Array.isArray(r.name) ? r.name : [r.name]);
+      if (!features.length) return;
+      const shape = { type: "FeatureCollection", features };
+      const d = rec.path(shape);
+      const tone = paint(r.color || "amber");
+      fade(make("path", { d, fill: tint(tone, 0.45) }, g));
+      out.push({ node: make("path", { d, fill: "none", stroke: tone, "stroke-width": 2.2 / rec.k, "stroke-linejoin": "round" }, g), kind: "stroke", at: it.at });
+      if (r.label) {
+        const [cx, cy] = rec.path.centroid(shape);
+        label(r.label, cx, cy, { size: 18 / rec.k, color: r.color, halo: true, haloWidth: 5 / rec.k });
+      }
+    };
+    const mapPin = (rec, p) => {
+      const at = rec.proj([Number(p.lon), Number(p.lat)]);
+      if (!at) return;
+      const k = rec.k;
+      fade(make("circle", { cx: at[0], cy: at[1], r: 5 / k, fill: paint(p.color || "red"), stroke: "#fff", "stroke-width": 1.5 / k }, g));
+      if (p.label) label(p.label, at[0] + 9 / k, at[1], { size: 17 / k, anchor: "start", color: p.color, halo: true, haloWidth: 5 / k });
+    };
+    const mapRoute = (rec, r) => {
+      const a = rec.proj(r.from || []);
+      const b = rec.proj(r.to || []);
+      if (!a || !b) return;
+      const k = rec.k;
+      const before = it.weight;
+      it.weight = (r.weight || 2.4) / k;
+      const [shaft, head] = arrow(rand, { from: a, to: b, bend: (r.bend || 0) / k, head: 13 / k });
+      stroke(shaft);
+      stroke(head);
+      it.weight = before;
+      if (r.label) label(r.label, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 14 / k, { size: 16 / k, color: r.color, halo: true, haloWidth: 5 / k });
+    };
+    const event = (line, e) => {
+      const ex = line.X(e.year);
+      const above = e.side ? e.side === "above" : line.count++ % 2 === 0;
+      const reach = e.reach || 58;
+      const ly = above ? line.y - reach : line.y + reach;
+      const tone = e.color || it.color;
+      stroke(`M${ex} ${line.y} L${ex} ${above ? ly + 14 : ly - 14}`);
+      out.push({ node: make("circle", { cx: ex, cy: line.y, r: 5, fill: paint(tone) }, g), kind: "fade", at: it.at });
+      label(e.label, ex, above ? ly - 4 : ly + 6, { size: 18, color: tone, maxWidth: e.width || 150, halo: true });
+      if (e.when ?? e.year) label(String(e.when ?? e.year), ex, above ? ly - 24 : ly + 26, { size: 13, color: "gray", halo: true });
+    };
 
     switch (it.type) {
       case "box": {
@@ -499,11 +544,187 @@
         break;
       case "person": {
         const { x, y } = it;
+        const pose = it.pose || "stand";
         stroke(wobble(rand, oval(x, y, 13, 13), 0.8));
         stroke(wobble(rand, [[x, y + 13], [x, y + 60]], 1));
-        stroke(wobble(rand, [[x - 26, y + 32], [x + 26, y + 32]], 1));
-        stroke(wobble(rand, [[x - 20, y + 98], [x, y + 60], [x + 20, y + 98]], 1));
+        const arms = {
+          stand: [[[x - 26, y + 32], [x, y + 28], [x + 26, y + 32]]],
+          point: [[[x - 20, y + 52], [x, y + 30]], [[x, y + 30], [x + 34, y + 12]]],
+          wave: [[[x - 20, y + 52], [x, y + 30]], [[x, y + 30], [x + 22, y + 10], [x + 26, y - 10]]],
+          think: [[[x - 18, y + 48], [x, y + 30]], [[x, y + 30], [x + 18, y + 26], [x + 7, y + 11]]],
+          shrug: [[[x - 30, y + 18], [x - 18, y + 32], [x, y + 28]], [[x, y + 28], [x + 18, y + 32], [x + 30, y + 18]]],
+          laptop: [[[x, y + 30], [x + 28, y + 50]]],
+        }[pose] || [[[x - 26, y + 32], [x + 26, y + 32]]];
+        arms.forEach((a) => stroke(wobble(rand, a, 1)));
+        if (pose === "laptop") {
+          stroke(wobble(rand, [[x - 4, y + 60], [x + 22, y + 66], [x + 22, y + 98]], 1));
+          stroke(wobble(rand, [[x + 22, y + 58], [x + 64, y + 58]], 0.6));
+          stroke(wobble(rand, [[x + 30, y + 58], [x + 36, y + 30], [x + 62, y + 30], [x + 64, y + 58]], 0.6));
+        } else stroke(wobble(rand, [[x - 20, y + 98], [x, y + 60], [x + 20, y + 98]], 1));
+        if (it.mood) {
+          [-4.5, 4.5].forEach((dx) => fade(make("circle", { cx: x + dx, cy: y - 2, r: 1.7, fill: ink }, g)));
+          const mouth = {
+            happy: `M${x - 5} ${y + 4} Q${x} ${y + 9} ${x + 5} ${y + 4}`,
+            sad: `M${x - 5} ${y + 8} Q${x} ${y + 3} ${x + 5} ${y + 8}`,
+            confused: `M${x - 5} ${y + 6} L${x - 2} ${y + 4} L${x + 1} ${y + 7} L${x + 5} ${y + 5}`,
+            surprised: null,
+          }[it.mood];
+          if (mouth) fade(make("path", { d: mouth, fill: "none", stroke: ink, "stroke-width": 1.6, "stroke-linecap": "round" }, g));
+          else fade(make("circle", { cx: x, cy: y + 6, r: 2.6, fill: "none", stroke: ink, "stroke-width": 1.4 }, g));
+        }
         if (it.label) label(it.label, x, y + 120, { size: 20 });
+        break;
+      }
+      case "icon": {
+        const size = it.size || 48;
+        const body = (global.Chalktalk.iconCache || {})[it.name];
+        if (!body) {
+          fade(logo(g, null, it.x, it.y, size));
+        } else {
+          const holder = make("g", { transform: `translate(${it.x} ${it.y}) scale(${size / 24})` }, g);
+          holder.style.color = ink;
+          holder.innerHTML = body;
+          holder.querySelectorAll("[stroke-width]").forEach((n) => n.setAttribute("stroke-width", String(it.weight || 1.8)));
+          holder.querySelectorAll("path,line,circle,rect,polyline,polygon,ellipse").forEach((n) => out.push({ node: n, kind: "stroke", at: it.at }));
+        }
+        if (it.label) label(it.label, it.x + size / 2, it.y + size + 16, { size: 17, halo: true, maxWidth: Math.max(90, size * 2) });
+        break;
+      }
+      case "sketch": {
+        const saved = it.use ? (global.Chalktalk.library || {})[it.use] : null;
+        const src = saved ? { ...saved, ...it, paths: it.paths || saved.paths, fills: it.fills || saved.fills } : it;
+        const box = src.box || 100;
+        const width = src.w || box;
+        const s = width / box;
+        (src.fills || []).forEach((f) =>
+          fade(make("path", { d: placePath(f.d || f, it.x, it.y, s), fill: tint(paint(f.color || it.color || "amber"), f.strength || 0.3) }, g)),
+        );
+        (src.paths || []).forEach((d) => stroke(placePath(typeof d === "string" ? d : d.d, it.x, it.y, s)));
+        if (it.label) label(it.label, it.x + width / 2, it.y + (src.h ? src.h * s : width) + 16, { size: 18, halo: true });
+        break;
+      }
+      case "map": {
+        const kit = global.Chalktalk.mapKit;
+        const { x, y, w, h } = it;
+        if (!kit) {
+          card(x, y, w, h, 12);
+          label("Maps need the Chalktalk helper running.", x + w / 2, y + h / 2, { size: 16, color: "gray" });
+          break;
+        }
+        const usNames = new Set(kit.us.features.map((f) => String(f.properties.name).toLowerCase()));
+        const wantsUs = it.states || it.region === "usa" || (it.focus || []).some((n) => usNames.has(String(n).toLowerCase()));
+        const zoomed = Boolean(it.focus || it.bbox);
+        const world = zoomed ? kit.world50 : kit.world110;
+        const lookup = (names) =>
+          names.flatMap((n) => {
+            const want = String(n).toLowerCase();
+            const match = (f) => String(f.properties.name).toLowerCase() === want;
+            const states = kit.us.features.filter(match);
+            return states.length && !/ \(country\)$/.test(want) ? states : kit.world50.features.filter(match);
+          });
+        const target = it.bbox
+          ? { type: "MultiPoint", coordinates: [[it.bbox[0], it.bbox[1]], [it.bbox[2], it.bbox[3]], [it.bbox[0], it.bbox[3]], [it.bbox[2], it.bbox[1]]] }
+          : it.focus
+            ? { type: "FeatureCollection", features: lookup(it.focus) }
+            : { type: "FeatureCollection", features: it.region === "usa" ? kit.us.features : world.features };
+        const proj = it.region === "usa" && !zoomed ? kit.lib.geoAlbersUsa() : it.region === "world" && !zoomed ? kit.lib.geoNaturalEarth1() : kit.lib.geoMercator();
+        proj.fitExtent([[x + 14, y + 14], [x + w - 14, y + h - 14]], target);
+        const path = kit.lib.geoPath(proj);
+        const clipId = `sk-map-${Math.random().toString(36).slice(2, 8)}`;
+        make("rect", { x, y, width: w, height: h, rx: 12 }, make("clipPath", { id: clipId }, svg.querySelector("defs")));
+        const frame = make("g", { "clip-path": `url(#${clipId})` }, g);
+        fade(make("rect", { x, y, width: w, height: h, fill: "#e6eef3" }, frame));
+        const inner = make("g", {}, frame);
+        inner.style.transformOrigin = "0 0";
+        const land = make("g", {}, inner);
+        const drawSet = (features) =>
+          features.forEach((f) => {
+            const d = path(f);
+            if (d) make("path", { d, fill: "#f5f2ea", stroke: "#a7a297", "stroke-width": 0.8, "vector-effect": "non-scaling-stroke" }, land);
+          });
+        if (it.region !== "usa" || zoomed) drawSet(world.features);
+        if (wantsUs) drawSet(kit.us.features);
+        fade(land);
+        out.push({ node: make("rect", { x, y, width: w, height: h, rx: 12, fill: "none", stroke: "#8c877d", "stroke-width": 1.2 }, g), kind: "fade", at: it.at });
+        const rec = { g: inner, proj, path, lookup, x, y, w, h, k: 1 };
+        codes[`map:${it.id || "map"}`] = rec;
+        g = inner;
+        (it.highlight || []).forEach((r) => mapRegion(rec, r));
+        (it.pins || []).forEach((p) => mapPin(rec, p));
+        (it.routes || []).forEach((r) => mapRoute(rec, r));
+        break;
+      }
+      case "region":
+      case "pin":
+      case "route":
+      case "zoom": {
+        const rec = codes[`map:${it.map || "map"}`];
+        if (!rec) break;
+        rec.g.append(g);
+        if (it.type === "region") mapRegion(rec, it);
+        else if (it.type === "pin") mapPin(rec, it);
+        else if (it.type === "route") mapRoute(rec, it);
+        else {
+          const target = it.bbox
+            ? { type: "MultiPoint", coordinates: [[it.bbox[0], it.bbox[1]], [it.bbox[2], it.bbox[3]], [it.bbox[0], it.bbox[3]], [it.bbox[2], it.bbox[1]]] }
+            : { type: "FeatureCollection", features: rec.lookup(it.focus || []) };
+          const [[x0, y0], [x1, y1]] = rec.path.bounds(target);
+          if (!(x1 > x0 && y1 > y0)) break;
+          const k = Math.min(14, 0.85 * Math.min(rec.w / (x1 - x0), rec.h / (y1 - y0)));
+          const tx = rec.x + rec.w / 2 - k * ((x0 + x1) / 2);
+          const ty = rec.y + rec.h / 2 - k * ((y0 + y1) / 2);
+          rec.k = k;
+          out.push({ node: rec.g, kind: "zoom", to: `translate(${tx}px, ${ty}px) scale(${k})`, at: it.at });
+        }
+        break;
+      }
+      case "timeline": {
+        const { x, y, w } = it;
+        const from = Number(it.from);
+        const to = Number(it.to);
+        const span = to - from || 1;
+        const X = (when) => x + ((Number(when) - from) / span) * w;
+        const line = { X, y, count: 0 };
+        codes[`timeline:${it.id || "timeline"}`] = line;
+        (it.eras || []).forEach((era) => {
+          const x0 = X(era.from);
+          const x1 = X(era.to);
+          const tone = paint(era.color || "amber");
+          fade(make("rect", { x: x0, y: y - 13, width: Math.max(6, x1 - x0), height: 26, rx: 13, fill: tint(tone, 0.22) }, g));
+          if (era.label) label(era.label, (x0 + x1) / 2, y + 30, { size: 15, color: era.color || "gray", maxWidth: Math.max(60, x1 - x0) });
+        });
+        stroke(wobble(rand, [[x - 6, y], [x + w, y]], 1.1));
+        stroke(`M${x + w - 11} ${y - 7} L${x + w + 1} ${y} L${x + w - 11} ${y + 7}`);
+        const step = it.tick || [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((s) => span / s <= 8) || Math.ceil(span / 8);
+        for (let t = Math.ceil(from / step) * step; t <= to; t += step) {
+          stroke(`M${X(t)} ${y - 5} L${X(t)} ${y + 5}`);
+          if (!(it.eras || []).length) label(String(t), X(t), y + 22, { size: 13, color: "gray" });
+        }
+        (it.events || []).forEach((e) => event(line, e));
+        break;
+      }
+      case "event": {
+        const line = codes[`timeline:${it.timeline || "timeline"}`];
+        if (line) event(line, it);
+        break;
+      }
+      case "bars": {
+        const { x, y, w, h } = it;
+        const bars = it.bars || [];
+        const top = it.max || Math.max(1, ...bars.map((b) => Number(b.value) || 0));
+        const gap = 16;
+        const bw = (w - gap * (bars.length + 1)) / Math.max(1, bars.length);
+        const base = y + h - 24;
+        stroke(wobble(rand, [[x, base], [x + w, base]], 0.8));
+        bars.forEach((b, i) => {
+          const bx = x + gap + i * (bw + gap);
+          const bh = ((Number(b.value) || 0) / top) * (h - 56);
+          const tone = paint(b.color || it.color || "blue");
+          fade(make("rect", { x: bx, y: base - bh, width: bw, height: bh, rx: 4, fill: tint(tone, 0.35) }, g));
+          stroke(wobble(rand, [[bx, base], [bx, base - bh], [bx + bw, base - bh], [bx + bw, base]], 0.9));
+          label(`${b.value}${it.unit || ""}`, bx + bw / 2, base - bh - 14, { size: 16, color: b.color || it.color, maxWidth: bw + gap });
+          if (b.label) label(b.label, bx + bw / 2, base + 14, { size: 15, maxWidth: bw + gap });
+        });
         break;
       }
       case "code": {
@@ -676,6 +897,97 @@
     },
   };
 
+  function placePath(d, x, y, s) {
+    const tokens = String(d).match(/[a-zA-Z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?/g) || [];
+    const parts = [];
+    let cmd = "M";
+    let first = true;
+    let pair = [];
+    let single = false;
+    tokens.forEach((tok) => {
+      if (/[a-zA-Z]/.test(tok)) {
+        cmd = tok;
+        single = /[HhVv]/.test(cmd);
+        pair = [];
+        parts.push(tok);
+        return;
+      }
+      const n = Number(tok);
+      const abs = cmd === cmd.toUpperCase() || (first && cmd === "m");
+      if (single) {
+        parts.push(String(abs ? (/[Hh]/.test(cmd) ? x : y) + n * s : n * s));
+        first = false;
+        return;
+      }
+      pair.push(n);
+      if (pair.length === 2) {
+        parts.push(abs ? `${x + pair[0] * s} ${y + pair[1] * s}` : `${pair[0] * s} ${pair[1] * s}`);
+        pair = [];
+        first = false;
+      }
+    });
+    return parts.join(" ");
+  }
+
+  async function prepare(items, base) {
+    const C = global.Chalktalk;
+    const icons = [...new Set(items.filter((it) => it && it.type === "icon" && it.name).map((it) => it.name))];
+    const saved = [...new Set(items.filter((it) => it && it.type === "sketch" && it.use).map((it) => it.use))];
+    const maps = items.some((it) => it && it.type === "map");
+    if (base) global.CHALKTALK_THREE = global.CHALKTALK_THREE || `${base}/three.js`;
+    const jobs = [];
+    if (icons.length && base)
+      jobs.push(
+        fetch(`${base}/icons.json?names=${encodeURIComponent(icons.join(","))}`)
+          .then((r) => r.json())
+          .then((found) => (C.iconCache = { ...(C.iconCache || {}), ...found }))
+          .catch(() => {}),
+      );
+    saved.forEach((name) =>
+      jobs.push(
+        fetch(`${base}/library/${encodeURIComponent(name)}.json`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((sk) => sk && (C.library = { ...(C.library || {}), [name]: sk }))
+          .catch(() => {}),
+      ),
+    );
+    if (maps && base && !C.mapKit)
+      jobs.push(
+        (async () => {
+          const lib = await import(`${base}/maps.js`);
+          const load = (name) => fetch(`${base}/map/${name}.json`).then((r) => r.json());
+          const [w110, w50, us] = await Promise.all([load("world-110m"), load("world-50m"), load("us-states")]);
+          C.mapKit = {
+            lib,
+            world110: lib.feature(w110, w110.objects.countries),
+            world50: lib.feature(w50, w50.objects.countries),
+            us: lib.feature(us, us.objects.states),
+          };
+        })().catch(() => {}),
+      );
+    await Promise.all(jobs);
+  }
+
+  // One thing, one place. A board only grows, so an item drawn again on the same spot of the same
+  // kind (a step updating an icon, a note, a card) replaces the earlier one instead of stacking on
+  // it. Items opt out with "keep": true. Scene steps are filtered before anything is built.
+  function dedupe(scene) {
+    const SPOT = 12;
+    let seen = [];
+    (scene.steps || []).forEach((step) => {
+      if (step.clear) seen = [];
+      (step.items || []).forEach((it) => {
+        if (it.keep || !["box", "text", "icon", "sketch", "image", "person", "bubble"].includes(it.type)) return;
+        if (!Number.isFinite(it.x) || !Number.isFinite(it.y)) return;
+        const before = seen.find((s) => s.type === it.type && Math.abs(s.x - it.x) <= SPOT && Math.abs(s.y - it.y) <= SPOT);
+        if (before) before.item.drop = true;
+        seen = seen.filter((s) => s !== before);
+        seen.push({ type: it.type, x: it.x, y: it.y, item: it });
+      });
+    });
+    (scene.steps || []).forEach((step) => (step.items = (step.items || []).filter((it) => !it.drop)));
+  }
+
   function layout(scene, W, H) {
     const items = (scene.steps || []).flatMap((s) => s.items || []);
     const ends = items.flatMap((it) =>
@@ -732,6 +1044,7 @@
     if (scene.three || global.CHALKTALK_THREE) svg.dataset.three = scene.three || global.CHALKTALK_THREE;
     svg.style.display = "block";
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
+    dedupe(scene);
     svg.__boxes = layout(scene, W, H);
     const steps = (scene.steps || []).map((step) => (step.items || []).flatMap((it) => build(svg, it, rand, codes, open)));
 
@@ -771,6 +1084,7 @@
         node.style.transition = "none";
         if (rise) node.style.transform = "translateY(6px)";
         if (kind === "fade") node.style.opacity = 0;
+        else if (kind === "zoom") node.style.transform = "none";
         else {
           const L = node.getTotalLength();
           node.style.strokeDasharray = L;
@@ -780,9 +1094,14 @@
 
     const reveal = (i, animate, stretch = 1) => {
       let t = 0;
-      steps[i].forEach(({ node, kind, at, rise }) => {
+      steps[i].forEach(({ node, kind, at, rise, to }) => {
         if (animate && typeof at === "number") t = Math.max(t, at);
-        if (kind === "fade") {
+        if (kind === "zoom") {
+          node.style.transition = animate ? `transform 1.6s cubic-bezier(.45,0,.2,1) ${t}s` : "none";
+          node.style.transform = to;
+          if (animate && scene.sound !== false) sound.wipe(t);
+          if (animate) t += 1.3;
+        } else if (kind === "fade") {
           node.style.transition = animate ? `opacity .45s ease ${t}s, transform .55s cubic-bezier(.22,1,.36,1) ${t}s` : "none";
           node.style.opacity = 1;
           if (rise) node.style.transform = "none";
@@ -913,5 +1232,5 @@
     return { go, next: () => go(current + 1), back: () => go(current - 1) };
   }
 
-  global.Chalktalk = { mount, palette: PALETTE, brands: BRANDS, pickVoice, figure: figure3d, sound };
+  global.Chalktalk = { mount, prepare, palette: PALETTE, brands: BRANDS, pickVoice, figure: figure3d, sound };
 })(window);

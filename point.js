@@ -27,6 +27,8 @@
   document.documentElement.append(layer);
 
   let sessions = [];
+  let agent = "";
+  const who = () => agent || "Claude";
   let chosen = window.__sketchSession || null;
   const LISTEN = "/chalktalk listen";
   let TAB = window.__sketchTab;
@@ -43,6 +45,7 @@
   fetch(`http://127.0.0.1:47321/status?tab=${TAB}`)
     .then((r) => r.json())
     .then(async (s) => {
+      if (s.agent) agent = s.agent;
       if (s.lesson && s.session) {
         const lesson = await (await fetch(`http://127.0.0.1:47321/lesson?session=${encodeURIComponent(s.session)}&tab=${TAB}`)).json();
         (0, eval)(await (await fetch("http://127.0.0.1:47321/explain.js")).text());
@@ -56,7 +59,7 @@
           "position:fixed;top:58px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:min(92vw,720px);padding:8px 12px;border-radius:12px;background:#2c2c2a;color:#fff;font:13px system-ui,sans-serif;pointer-events:auto";
         box.addEventListener("pointerdown", (e) => e.stopPropagation());
         const text = document.createElement("span");
-        text.textContent = "No Claude session is listening. Circle and talk anyway: it's saved. To have Claude answer, paste this into a Claude Code session:";
+        text.textContent = `No ${who()} session is listening. Circle and talk anyway: it is saved. To have ${who()} answer, paste this into a Claude Code session:`;
         const code = document.createElement("code");
         code.textContent = LISTEN;
         code.style.cssText = "background:#fff2;padding:2px 6px;border-radius:6px;white-space:nowrap";
@@ -336,6 +339,7 @@
       .then((r) => r.json())
       .then(async (s) => {
         if (s.session && !window.__sketchSession) window.__sketchSession = s.session;
+        if (s.agent) agent = s.agent;
         if (s.lesson) {
           const lesson = await (await fetch(`http://127.0.0.1:47321/lesson${q}`)).json();
           (0, eval)(await (await fetch("http://127.0.0.1:47321/explain.js")).text());
@@ -346,9 +350,9 @@
         if (s.claude === "thinking") {
           const secs = Math.round((Date.now() - s.since) / 1000);
           const clock = `${secs >= 60 ? `${Math.floor(secs / 60)}m ` : ""}${secs % 60}s`;
-          showPill("#EF9F27", s.plan && s.plan.length ? `Claude is thinking · ${clock}` : `Claude is thinking${s.doing ? ` · ${s.doing}` : ""} · ${clock}`, s.plan || [], s.step || 0, s.reply || "");
-        } else if (s.claude === "listening") showPill("#1D9E75", "Claude is listening · your note is queued");
-        else showPill("#888780", `No Claude session is listening · your note is saved · paste "${LISTEN}" into a Claude Code session`);
+          showPill("#EF9F27", s.plan && s.plan.length ? `${who()} is thinking · ${clock}` : `${who()} is thinking${s.doing ? ` · ${s.doing}` : ""} · ${clock}`, s.plan || [], s.step || 0, s.reply || "");
+        } else if (s.claude === "listening") showPill("#1D9E75", `${who()} is listening · your note is queued`);
+        else showPill("#888780", `No ${who()} session is listening · your note is saved · paste "${LISTEN}" into a Claude Code session`);
         again(1500);
       })
       .catch(() => {
@@ -411,7 +415,7 @@
     help.style.opacity = ".6";
     help.textContent = "⌘Enter to send · Esc to skip";
     const send = document.createElement("button");
-    send.textContent = "Send to Claude";
+    send.textContent = `Send to ${who()}`;
     send.style.cssText = "font:inherit;padding:4px 14px;border-radius:8px;border:0;background:#E24B4A;color:#fff;cursor:pointer";
     foot.append(help, send);
     panel.append(title);
@@ -476,14 +480,15 @@
         .then((r) => r.json())
         .then((s) => {
           if (s.deliveredTo) window.__sketchSession = s.deliveredTo;
+          if (s.agent) agent = s.agent;
           shown(
             s.claude === "thinking"
-              ? "Claude is thinking. A quick answer, then the drawing, will show here."
-              : `Saved. No Claude session is listening; paste "${LISTEN}" into one and it picks this up.`,
+              ? `${who()} is thinking. A quick answer, then the drawing, will show here.`
+              : `Saved. No ${who()} session is listening; paste "${LISTEN}" into one and it picks this up.`,
           );
           waitForLesson(Date.now() + 60 * 60 * 1000);
         })
-        .catch(() => shown("Chalktalk is off. Your note is on your clipboard: paste it into Claude."));
+        .catch(() => shown(`Chalktalk is off. Your note is on your clipboard: paste it into ${who()}.`));
     };
     note.addEventListener("keydown", (e) => {
       e.stopPropagation();

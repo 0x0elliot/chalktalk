@@ -28,7 +28,7 @@ type KeySource =
   | { from: "keychain"; service?: string }
   | { from: "gcloud"; project: string; secret: string }
   | { from: "command"; command: string };
-type Config = { voice?: string; elevenlabsVoice?: string; keychainService?: string; elevenlabsKey?: KeySource };
+type Config = { voice?: string; elevenlabsVoice?: string; elevenlabsModel?: string; keychainService?: string; elevenlabsKey?: KeySource };
 const configFile = Bun.file(`${HOME}/config.json`);
 const config: Config = (await configFile.exists()) ? ((await configFile.json().catch(() => ({}))) as Config) : {};
 
@@ -82,7 +82,11 @@ async function withElevenLabs(): Promise<Spoken> {
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${flag("voice") ?? config.elevenlabsVoice ?? ELEVEN_VOICE}/with-timestamps?output_format=mp3_44100_128`, {
     method: "POST",
     headers: { "xi-api-key": key, "Content-Type": "application/json" },
-    body: JSON.stringify({ text: script, model_id: ELEVEN_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),
+    body: JSON.stringify({
+      text: script,
+      model_id: config.elevenlabsModel || ELEVEN_MODEL,
+      voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+    }),
   });
   if (!response.ok) throw new Error(`ElevenLabs answered ${response.status}: ${await response.text()}`);
   const spoken = (await response.json()) as { audio_base64: string; alignment: { character_start_times_seconds: number[] } };

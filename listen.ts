@@ -1,6 +1,7 @@
 import { chmod, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PORT = 47321;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -30,6 +31,7 @@ function positional(): string[] {
 }
 
 const sessionName = flag("name", basename(process.cwd()));
+const agentName = flag("as", "").slice(0, 40);
 
 function out(line: string): void {
   process.stdout.write(`${line}\n`);
@@ -56,7 +58,7 @@ async function internal(path: string, body?: unknown): Promise<Response | null> 
   try {
     return await fetch(BASE + path, {
       method: body === undefined ? "GET" : "POST",
-      headers: { "x-sketch-token": await token(), "x-sketch-session": sessionName, "Content-Type": "application/json" },
+      headers: { "x-sketch-token": await token(), "x-sketch-session": sessionName, "x-sketch-agent": agentName, "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
@@ -66,6 +68,7 @@ async function internal(path: string, body?: unknown): Promise<Response | null> 
 
 type Session = {
   name: string;
+  agent: string;
   waiter: ((line: string | null) => void) | null;
   lastSeen: number;
   queue: string[];
@@ -83,17 +86,43 @@ type Session = {
   lastOrigin: string;
 };
 
-let threeCode: Promise<string | null> | null = null;
-function threeBundle(): Promise<string | null> {
-  threeCode ??= Bun.build({
-    entrypoints: [new URL("./three.entry.js", import.meta.url).pathname],
-    format: "esm",
-    target: "browser",
-    minify: true,
-  })
-    .then(async (built) => (built.success && built.outputs[0] ? await built.outputs[0].text() : null))
+const bundles = new Map<string, Promise<string | null>>();
+function bundle(entry: string): Promise<string | null> {
+  let code = bundles.get(entry);
+  if (!code) {
+    code = Bun.build({ entrypoints: [new URL(`./${entry}`, import.meta.url).pathname], format: "esm", target: "browser", minify: true })
+      .then(async (built) => (built.success && built.outputs[0] ? await built.outputs[0].text() : null))
+      .catch(() => null);
+    bundles.set(entry, code);
+  }
+  return code;
+}
+const threeBundle = () => bundle("three.entry.js");
+
+const MAP_FILES: Record<string, string> = {
+  "world-110m": "node_modules/world-atlas/countries-110m.json",
+  "world-50m": "node_modules/world-atlas/countries-50m.json",
+  "us-states": "node_modules/us-atlas/states-10m.json",
+};
+
+type IconSet = { width: number; height: number; icons: Record<string, { body: string }>; aliases?: Record<string, { parent: string }> };
+let iconSet: Promise<IconSet | null> | null = null;
+function icons(): Promise<IconSet | null> {
+  iconSet ??= Bun.file(new URL("./node_modules/@iconify-json/lucide/icons.json", import.meta.url))
+    .json()
+    .then((j) => j as IconSet)
     .catch(() => null);
-  return threeCode;
+  return iconSet;
+}
+async function iconBodies(names: string[]): Promise<Record<string, string>> {
+  const set = await icons();
+  const out: Record<string, string> = {};
+  if (!set) return out;
+  for (const name of names.slice(0, 80)) {
+    const real = set.icons[name] ? name : set.aliases?.[name]?.parent;
+    if (real && set.icons[real]) out[name] = set.icons[real].body;
+  }
+  return out;
 }
 
 async function serve(): Promise<void> {
@@ -106,16 +135,18 @@ async function serve(): Promise<void> {
   let blocked = await readList(BLOCKED_FILE);
   const seen = new Set(await readList(SEEN_FILE));
   let lastActivity = Date.now();
+  let lastAgent = "";
 
   const session = (name: string): Session => {
     let s = sessions.get(name);
     if (!s) {
-      s = { name, waiter: null, lastSeen: 0, queue: [], thinkingSince: 0, doing: "", plan: [], step: 0, lessonDir: null, lessonSent: true, offered: new Set(), reply: "", lastPath: "", lastTab: "", lessonTab: "", lastOrigin: "" };
+      s = { name, agent: "", waiter: null, lastSeen: 0, queue: [], thinkingSince: 0, doing: "", plan: [], step: 0, lessonDir: null, lessonSent: true, offered: new Set(), reply: "", lastPath: "", lastTab: "", lessonTab: "", lastOrigin: "" };
       sessions.set(name, s);
     }
     return s;
   };
   const listening = (s: Session) => s.waiter !== null || Date.now() - s.lastSeen < LISTENING_GRACE_MS;
+  const who = (s?: Session) => (s && s.agent) || lastAgent || "Claude";
   const stateOf = (s: Session) => (s.thinkingSince ? "thinking" : listening(s) ? "listening" : "away");
   const live = () => [...sessions.values()].filter((s) => s.thinkingSince || listening(s));
 
@@ -124,13 +155,14 @@ async function serve(): Promise<void> {
   function report(name: string | null, tab: string | null = null) {
     const list = live().map((s) => ({ id: s.name, state: stateOf(s) }));
     const s = name ? sessions.get(name) : live().length === 1 ? live()[0] : undefined;
-    if (!s) return { claude: list.length ? "choose" : "away", sessions: list, session: null, lesson: false, queued: unaddressed.length };
+    if (!s) return { claude: list.length ? "choose" : "away", sessions: list, session: null, agent: who(), lesson: false, queued: unaddressed.length };
     const planned = s.thinkingSince && s.plan.length ? `Step ${s.step} of ${s.plan.length} · ${s.plan[s.step - 1]}` : "";
     const mine = Boolean(tab) && tab === s.lastTab;
     return {
       claude: stateOf(s),
       session: s.name,
       sessions: list,
+      agent: who(s),
       since: s.thinkingSince || null,
       doing: mine && s.thinkingSince ? planned || s.doing : "",
       plan: mine && s.thinkingSince ? s.plan : [],
@@ -178,6 +210,11 @@ async function serve(): Promise<void> {
   async function handleInternal(req: Request, pathname: string): Promise<Response> {
     if (req.headers.get("x-sketch-token") !== secret) return new Response("forbidden", { status: 403 });
     const s = session(req.headers.get("x-sketch-session") || "default");
+    const agent = (req.headers.get("x-sketch-agent") || "").trim().slice(0, 40);
+    if (agent) {
+      s.agent = agent;
+      lastAgent = agent;
+    }
     const body = req.method === "POST" ? ((await req.json().catch(() => ({}))) as Record<string, unknown>) : {};
     if (pathname === "/internal/next") {
       s.lastSeen = Date.now();
@@ -279,10 +316,26 @@ async function serve(): Promise<void> {
           const file = Bun.file(new URL(`./${name}`, import.meta.url));
           return new Response(await file.text(), { headers: { ...headers, "Content-Type": "text/javascript" } });
         }
-        if (req.method === "GET" && pathname === "/three.js") {
-          const code = await threeBundle();
-          if (!code) return new Response("3D library unavailable: run bun install in the chalktalk folder", { status: 503, headers });
+        if (req.method === "GET" && (pathname === "/three.js" || pathname === "/maps.js")) {
+          const code = await (pathname === "/three.js" ? threeBundle() : bundle("maps.entry.js"));
+          if (!code) return new Response("library unavailable: run bun install in the chalktalk folder", { status: 503, headers });
           return new Response(code, { headers: { ...headers, "Content-Type": "text/javascript", "Cache-Control": "max-age=86400" } });
+        }
+        if (req.method === "GET" && pathname === "/icons.json") {
+          const names = (url.searchParams.get("names") || "").split(",").map((n) => n.trim()).filter(Boolean);
+          return json(await iconBodies(names), 200, { ...headers, "Cache-Control": "max-age=3600" });
+        }
+        const mapFile = /^\/map\/([\w-]+)\.json$/.exec(pathname);
+        if (req.method === "GET" && mapFile && MAP_FILES[mapFile[1]]) {
+          const file = Bun.file(new URL(`./${MAP_FILES[mapFile[1]]}`, import.meta.url));
+          if (!(await file.exists())) return new Response("map data missing: run bun install", { status: 503, headers });
+          return new Response(file, { headers: { ...headers, "Content-Type": "application/json", "Cache-Control": "max-age=86400" } });
+        }
+        const libFile = /^\/library\/([\w-]+)\.json$/.exec(pathname);
+        if (req.method === "GET" && libFile) {
+          const file = Bun.file(`${HOME}/library/${libFile[1]}.json`);
+          if (!(await file.exists())) return new Response("not found", { status: 404, headers });
+          return new Response(file, { headers: { ...headers, "Content-Type": "application/json" } });
         }
         const tab = url.searchParams.get("tab");
         if (req.method === "GET" && pathname === "/status") return json(report(asked, tab), 200, headers);
@@ -376,6 +429,36 @@ async function serve(): Promise<void> {
   }
 }
 
+const HOTKEY = process.platform === "darwin" ? "⌃⌥C (Control+Option+C)" : "Ctrl+Alt+C";
+
+async function helperUp(): Promise<boolean> {
+  try {
+    return (await fetch(`${BASE}/status`)).ok;
+  } catch {
+    return false;
+  }
+}
+
+async function start(): Promise<void> {
+  if (!(await helperUp())) {
+    const script = fileURLToPath(new URL("./listen.ts", import.meta.url));
+    const helper = Bun.spawn(["bun", script, "serve"], { stdio: ["ignore", "ignore", "ignore"], detached: true });
+    helper.unref();
+    for (let i = 0; i < 50 && !(await helperUp()); i++) await Bun.sleep(100);
+    if (!(await helperUp())) fail("The chalktalk helper did not start. Run: bun listen.ts serve");
+  }
+  const app = Bun.spawn(["bun", fileURLToPath(new URL("./desktop.ts", import.meta.url)), "start"], { stdout: "inherit", stderr: "inherit" });
+  await app.exited;
+  let others: string[] = [];
+  try {
+    const status = (await (await fetch(`${BASE}/status?session=${encodeURIComponent(sessionName)}`)).json()) as { sessions?: Array<{ id: string; state: string }> };
+    others = (status.sessions ?? []).filter((s) => s.id !== sessionName && s.state !== "away").map((s) => s.id);
+  } catch {}
+  out(`Listening. Click Chalktalk on any page, or press ${HOTKEY} anywhere on screen.`);
+  if (others.length) out(`note: ${others.join(", ")} also listening, so the page will ask which session. A finished chat's entry clears by itself in about a minute.`);
+  await wait();
+}
+
 async function wait(): Promise<void> {
   const until = Date.now() + Number(flag("minutes", "30")) * 60_000;
   while (Date.now() < until) {
@@ -417,6 +500,7 @@ async function setBlocked(block: boolean): Promise<void> {
 
 const words = positional();
 if (command === "serve") await serve();
+else if (command === "start") await start();
 else if (command === "wait") await wait();
 else if (command === "lesson") {
   if (!words[0]) fail("usage: bun listen.ts lesson <dir>");
@@ -432,4 +516,16 @@ else if (command === "stop") await call("/internal/stop", {});
 else if (command === "block") await setBlocked(true);
 else if (command === "unblock" || command === "allow") await setBlocked(false);
 else if (command === "status") await report();
-else fail("usage: bun listen.ts serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> to name this session)");
+else if (command === "icons") {
+  const set = await icons();
+  if (!set) fail("icons missing: run bun install in the chalktalk folder");
+  const want = words.map((w) => w.toLowerCase());
+  const names = [...Object.keys(set.icons), ...Object.keys(set.aliases ?? {})];
+  const hits = names.filter((n) => want.every((w) => n.includes(w)));
+  out(hits.length ? hits.slice(0, 40).join("  ") : `no icon matches ${want.join(" ")}; try a shorter word`);
+} else if (command === "library") {
+  const { readdir } = await import("node:fs/promises");
+  const files = await readdir(`${HOME}/library`).catch(() => [] as string[]);
+  out(files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).join("  ") || "the sketch library is empty");
+}
+else fail("usage: bun listen.ts start | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");

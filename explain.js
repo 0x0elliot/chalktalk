@@ -91,6 +91,8 @@
       sessionStorage.setItem("sketchTab", TAB);
     } catch {}
     const q = `?tab=${TAB}${SESSION ? `&session=${encodeURIComponent(SESSION)}` : ""}`;
+    let AGENT = "";
+    const who = () => AGENT || "Claude";
     const n = steps.length;
     const asset = (href) => (!href || /^(https?:|data:|blob:)/.test(href) ? href : `${BASE}${lesson.assetBase || "/lesson/"}${href}${q}`);
     Object.entries(lesson.brands || {}).forEach(([key, b]) => {
@@ -99,6 +101,7 @@
     ["board", "board2"].forEach((key) =>
       steps.forEach((s) => (s[key] || []).forEach((it) => it.type === "image" && (it.href = asset(it.href)))),
     );
+    if (window.Chalktalk.prepare) await window.Chalktalk.prepare(steps.flatMap((s) => [...(s.board || []), ...(s.board2 || [])]), BASE);
 
     if (!document.querySelector("link[data-sketch-font]")) {
       const font = document.createElement("link");
@@ -534,12 +537,13 @@
       if (!root.isConnected) return;
       try {
         const s = await (await fetch(`${BASE}/status${q}`)).json();
+        if (s.agent) AGENT = s.agent;
         if (s.claude === "thinking") {
           const secs = Math.round((Date.now() - s.since) / 1000);
-          paint("#EF9F27", `Claude is thinking${s.doing ? ` · ${s.doing}` : ""} · ${secs >= 60 ? `${Math.floor(secs / 60)}m ` : ""}${secs % 60}s`, true);
+          paint("#EF9F27", `${who()} is thinking${s.doing ? ` · ${s.doing}` : ""} · ${secs >= 60 ? `${Math.floor(secs / 60)}m ` : ""}${secs % 60}s`, true);
           if (s.reply) caption.textContent = `Quick answer: ${s.reply}`;
-        } else if (s.claude === "listening") paint("#1D9E75", "Claude is listening", false);
-        else paint("#888780", s.queued ? "Claude isn't listening · your question is saved" : "Claude isn't listening", false);
+        } else if (s.claude === "listening") paint("#1D9E75", `${who()} is listening`, false);
+        else paint("#888780", s.queued ? `${who()} isn't listening · your question is saved` : `${who()} isn't listening`, false);
         if (s.lesson) {
           const next = await (await fetch(`${BASE}/lesson${q}`)).json().catch(() => null);
           if (next) {
@@ -548,7 +552,7 @@
           }
         }
       } catch {
-        paint("#E24B4A", "Chalktalk is off · ask Claude in chat to start it", false);
+        paint("#E24B4A", `Chalktalk is off · ask ${who()} in chat to start it`, false);
       }
       lightTimer = setTimeout(checkStatus, 2000);
     }
@@ -575,7 +579,7 @@
       ask.disabled = true;
       send("question", text)
         .then(() => (ask.value = ""))
-        .catch(() => (caption.textContent = "Chalktalk is off. Your question is on your clipboard: paste it into Claude."))
+        .catch(() => (caption.textContent = `Chalktalk is off. Your question is on your clipboard: paste it into ${who()}.`))
         .finally(() => (ask.disabled = false));
     });
     ask.addEventListener("focus", () => {
@@ -845,7 +849,7 @@
             buttons.forEach((b) => (b.disabled = true));
             send("followup", f.prompt || f.label).catch(() => {
               buttons.forEach((b) => (b.disabled = false));
-              caption.textContent = "Chalktalk is off. Your question is on your clipboard: paste it into Claude.";
+              caption.textContent = `Chalktalk is off. Your question is on your clipboard: paste it into ${who()}.`;
             });
           }),
         );

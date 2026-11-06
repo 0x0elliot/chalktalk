@@ -5,7 +5,12 @@
     "": {
       "name": "chalktalk",
       "dependencies": {
+        "@iconify-json/lucide": "1.2.151",
+        "d3-geo": "3.1.2",
         "three": "0.187.0",
+        "topojson-client": "3.1.0",
+        "us-atlas": "3.0.1",
+        "world-atlas": "2.0.2",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -13,15 +18,33 @@
     },
   },
   "packages": {
+    "@iconify-json/lucide": ["@iconify-json/lucide@1.2.151", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-OCp+cNzynOlOI7zHq8bFGhBBzmSSWFICvOSTxZrajhFJC4YizvlLiBJMbaLzzlpMaGRidmZmAA8GpovoDKiy/w=="],
+
+    "@iconify/types": ["@iconify/types@2.0.0", "", {}, "sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg=="],
+
     "@types/bun": ["@types/bun@1.4.4", "", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
     "@types/node": ["@types/node@26.6.6", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog=="],
 
     "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
+    "commander": ["commander@2.20.3", "", {}, "sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ=="],
+
+    "d3-array": ["d3-array@3.2.5", "", { "dependencies": { "internmap": "1 - 2" } }, "sha512-Th8qGXoBalmWsstpkuhmBuTsBQIFqYOJtjlBvNVvBfJ8E3uYusBUwUR8HU20U0qKKQkgCvKyR1YjiozWadk5QA=="],
+
+    "d3-geo": ["d3-geo@3.1.2", "", { "dependencies": { "d3-array": "2.5.0 - 3" } }, "sha512-5R8ZgDQorIxmauv7R6gpE/ndz+Z0qAZssigq0aXFdvPHdY41RqtW02jrRUQAL724NdPABYXo1+gQEGBBr7uKNg=="],
+
+    "internmap": ["internmap@2.0.3", "", {}, "sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg=="],
+
     "three": ["three@0.187.0", "", {}, "sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA=="],
 
+    "topojson-client": ["topojson-client@3.1.0", "", { "dependencies": { "commander": "2" }, "bin": { "topo2geo": "bin/topo2geo", "topomerge": "bin/topomerge", "topoquantize": "bin/topoquantize" } }, "sha512-605uxS6bcYxGXw9qi62XyrV6Q3xwbndjachmNxu8HWTtVPxZfEJN9fd/SZS1Q54Sn2y0TMyMxFj/cJINqGHrKw=="],
+
     "undici-types": ["undici-types@8.12.4", "", {}, "sha512-GNCQH3MbVGB8OAVAoTiLH8pu4wx5Ni3DWKpnBzGj3WDsi8EwmK0aOVBooNEt+g5YL1eHPxcS9XUTouwFU6j1kQ=="],
+
+    "us-atlas": ["us-atlas@3.0.1", "", {}, "sha512-wEIZCq0ImPvGblTd8gZMqNNCPkQshugMUG/8nkSWXb02+XqNFREg9atHOKP9w6prLZTpqcLhSvdBW81MkV3/0Q=="],
+
+    "world-atlas": ["world-atlas@2.0.2", "", {}, "sha512-IXfV0qwlKXpckz1FhwXVwKRjiIhOnWttOskm5CtxMsjgE/MXAYRHWJqgXOpM8IkcPBoXnyTU5lFHcYa5ChG0LQ=="],
 
     "@types/node/undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
   }

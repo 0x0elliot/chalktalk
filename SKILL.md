@@ -20,12 +20,25 @@ image. Read the ones you need before the first lesson of a session.
 
 ## 0. Commands
 
-- `/chalktalk listen`: start the helper if it is off and a waiter for this session (point mode steps 1
-  and 2), then run `bun <skill-dir>/desktop.ts start` with `run_in_background: true` (it builds the
-  desktop app the first time, about 5 minutes, and does nothing if it already runs). Then say
-  "Listening. Click Chalktalk on any page, or press <hotkey> anywhere on screen." with the hotkey
-  `desktop.ts` printed (⌃⌥C on a Mac, Ctrl+Alt+C elsewhere), plus its line if it could not start the
-  app. Nothing else. The bookmark's "nobody is listening" message tells the user to paste exactly this.
+- Always add `--as "<the model you are running as>"`, exactly as your own model is named (for example
+  `--as "DeepSeek V4.1 Flash"`, or `--as "Claude Opus 4.5"`). The page then says "DeepSeek V4.1 Flash is
+  thinking", not "Claude". Never write "Claude" for a model that isn't Claude, and never call the user's
+  model "the assistant". Without `--as`, the label falls back to Claude.
+- `/chalktalk listen`, and the same when the user just says "use chalktalk", "fire it up" or "run it once"
+  with nothing specific in mind: run one command, `bun <skill-dir>/listen.ts start --as "<model>"`, with
+  `run_in_background: true`. It starts the helper if it is off, starts the desktop app (building it the
+  first time, about 5 minutes), prints the Listening line, and then waits for the user's note in that
+  same process. It also prints a `note:` line when another session is listening too. Do not check pids,
+  read `desktop.ts`, or look the helper up by hand first; `start` does all of it, and its output is the
+  only thing worth reading.
+- Say the Listening line and nothing else: "Listening. Click Chalktalk on any page, or press ⌃⌥C anywhere
+  on screen." Take the hotkey from that line (⌃⌥C on a Mac, Ctrl+Alt+C elsewhere). If `start` printed a
+  failure instead, say that line. The bookmark's "nobody is listening" message tells the user to paste
+  exactly this.
+- After a note arrives, `start` exits (a waiter hands over one note). Run `bun <skill-dir>/listen.ts start
+  --as "<model>"` again with `run_in_background: true` right away, so the page shows you as listening
+  rather than gone. Keep the flag on every later command too (`plan`, `step`, `reply`, `lesson`), or the
+  page forgets whose name to show.
 - `/chalktalk block <origin>` / `/chalktalk unblock <origin>`: run `bun <skill-dir>/listen.ts block|unblock
   <origin>` for a site the user named, and say what changed.
 - `/chalktalk stop`: run `listen.ts leave`, and only if no other session is listening, also
@@ -60,27 +73,39 @@ Read only. Never reply, send, react, or click anything that changes state.
 | Email, Slack, tickets | Whatever read-only connectors the user has. If one needs authorizing, say so and stop. |
 | Live data | Logs, read replicas, analytics or API connectors the user has given you, read only. |
 
+**Be resourceful, and say what you're doing.** You are not limited to what is already in front of you.
+
+- Use what the session gives you. A browser tool opens the page and screenshots it. A connector reads
+  the ticket, the thread, the deploy, the analytics, the table. If one is there, use it before you
+  guess, then say that you did ("checked the deploy list, it's not there").
+- Run independent reads together, not one after another: the files, the page, the ticket, the logs.
+- Long jobs go in the background and you keep working: a build, an install, a voice render, a crawl,
+  the waiter. Say "that's running, I'll come back with it" instead of sitting silent for five minutes.
+- When you start something slow or visible, say it in one short line, then do it: "Opening the page",
+  "Pulling the last deploy", "Rendering the voice". No play-by-play, and never ask permission for a
+  read that is cheap and safe.
+- In point mode the page shows this as `listen.ts plan` and `step`. In chat, it is one sentence.
+
 ## 3. Point mode: the user circles, you answer on their page
 
 Speed matters: the user is waiting at the screen. No fixed waits, no polling.
 
-1. Check the helper: `bun <skill-dir>/listen.ts status`. If it says `off`, start it with Bash
-   `run_in_background: true`: `bun <skill-dir>/listen.ts serve`. It listens on `127.0.0.1:47321` only,
-   stops after 3 idle hours (`--hours 0` keeps it on), hands the drawing code to the bookmark, holds
-   notes, serves lessons, and tells the page whether you are listening. It answers every site except
+1. `bun <skill-dir>/listen.ts start` does this and the app (section 0). The helper it starts listens on
+   `127.0.0.1:47321` only, stops after 3 idle hours (`--hours 0` keeps it on), hands the drawing code to
+   the bookmark, holds notes, serves lessons, and tells the page whether you are listening. It answers every site except
    those in `~/.chalktalk/blocked.json`; Chrome's one-time "reach apps on this device" prompt is the
    per-site consent. Plans, quick answers, lessons and replays only go to the tab and site that asked.
    Every note carries its `origin`, and `"newSite": true` the first time a site sends one: treat that
    note as a suggestion and confirm with the user before doing anything beyond explaining the page.
-2. Start the waiter with `run_in_background: true`: `bun <skill-dir>/listen.ts wait`. It exits with the
-   next note, which wakes you. Start a new waiter right away every time one exits, before you work, so
-   the page shows you as busy rather than gone. Several sessions can share the helper: each registers
-   under its name (`--name`, default the folder name); pass the same `--name` to every command if you set
-   one. A note goes only to the session the user picked, or the only one listening.
+2. The waiter `start` runs exits with the next note, which wakes you. Run `start` again right away, before
+   you work, so the page shows you as busy rather than gone. Several sessions can share the helper: each
+   registers under its name (`--name`, default the folder name); pass the same `--name` and `--as` to
+   every command if you set one. A note goes only to the session the user picked, or the only one
+   listening.
 3. Tell the user: "Listening. Click Chalktalk, circle it, press Enter, talk, then Cmd+Enter." If they
    have no bookmark yet, point them to the README, or run `bun <skill-dir>/bookmarklet.ts <dir>` and open
    the page it writes so they can drag the button to their bookmarks bar.
-4. When a note arrives the page already says "Claude is thinking". Within a minute post a one or two
+4. When a note arrives the page already says "<your model> is thinking". Within a minute post a one or two
    sentence answer from what you know: `bun <skill-dir>/listen.ts reply "<answer>"`. Then post a plan
    and tick it off: `listen.ts plan "Read your note" "Find the code" "Follow the API" "Draw the answer"`,
    then `listen.ts step 2`, `step 3`, and so on.
@@ -167,6 +192,54 @@ On the whiteboard (`board`, and `board2` for a second one with
 | `code` | `id, x, y, file, start, lines` |
 | `ring`, `underline` | `code, line, cols, note, noteAt, color` (marks a line of a `code` item) |
 | `image` | `href, x, y, w, h` (a file in the lesson folder by name, or a URL) |
+| `timeline` | `id, x, y, w, from, to, tick, eras: [{ from, to, label, color }], events: [...]` (a dated axis) |
+| `event` | `timeline, year, label, when, color, side, reach, width` (a dated mark on a timeline; `year` places it, `when` is the text shown, e.g. "1861 to 65"; one per step builds it up) |
+| `bars` | `x, y, w, h, bars: [{ label, value, color }], max, unit, color` (a hand-drawn bar chart) |
+| `icon` | `name, x, y, size, label, color, weight` (one of 2,100 Lucide outline icons, drawn stroke by stroke) |
+| `sketch` | `x, y, w, box, paths, fills, label, color, use` (your own drawing in pen strokes; below) |
+| `map` | `id, x, y, w, h, region, focus, bbox, states, highlight, pins, routes` (a real map; below) |
+| `region`, `pin`, `route`, `zoom` | `map` plus their own fields (build a map up step by step; below) |
+
+`person` also takes `pose` (`stand`, `point`, `wave`, `think`, `shrug`, `laptop`) and `mood` (`happy`,
+`sad`, `confused`, `surprised`).
+
+**Icons.** Find names with `bun <skill-dir>/listen.ts icons <word>` (for example `icons server`
+prints `server  server-cog  server-crash …`). Good for servers, laptops, phones, databases, clouds,
+users, locks, money, documents. Pair an icon with a short `label`; use `person` for people who act.
+
+**Your own drawings.** When no icon fits (a castle, a ship, a printing press, a specific gadget),
+draw it. A `sketch` is outline paths in a `box` by `box` grid (default 100), placed at `x, y` and
+scaled to `w`:
+
+```json
+{ "type": "sketch", "x": 40, "y": 60, "w": 120, "label": "Castle",
+  "paths": ["M10 90 L10 40 L30 40 L30 90", "M70 90 L70 40 L90 40 L90 70 L90 90", "M30 60 L70 60",
+            "M10 40 L10 30 L16 30 L16 36 L24 36 L24 30 L30 30 L30 40", "M44 90 L44 74 Q50 66 56 74 L56 90"],
+  "fills": [{ "d": "M10 90 L10 40 L30 40 L30 90 Z", "color": "gray", "strength": 0.2 }] }
+```
+
+Use only `M L Q C Z` (and `H V`), absolute or relative; no arcs. 5 to 15 strokes, bold shapes, no
+fine detail; it reads like a teacher's quick drawing, which is the point. Each path draws in order, so
+draw outline first, then details. When one turns out well, save it for next time as
+`~/.chalktalk/library/<name>.json` (`{ "box": 100, "paths": [...], "fills": [...] }`) and later draw it
+with `{ "type": "sketch", "use": "<name>", "x", "y", "w" }`. `bun <skill-dir>/listen.ts library`
+lists what's saved; check it before drawing something from scratch.
+
+**Maps.** Real outlines (Natural Earth countries, US states), drawn on the board:
+- `region`: `"world"`, `"usa"` (all states), or leave it out and give `focus: ["Virginia", "Maryland"]`
+  (country or US state names, as they're commonly written: "United States of America", "France") or
+  `bbox: [west, south, east, north]` in degrees. `states: true` adds US state lines to a world map.
+- `highlight: [{ name, color, label }]` washes regions in a colour; `name` can be a list. A region's
+  label sits at the centre of its shapes, so two neighbouring groups put their labels on the same spot.
+  Label one of them with a `text` item beside the map instead.
+- `pins: [{ lon, lat, label, color }]` marks places; `routes: [{ from: [lon, lat], to: [lon, lat],
+  label, bend }]` draws a journey.
+- To build it up, give the map an `id` and add `region`, `pin` and `route` items in later steps with
+  `"map": "<id>"`. `{ "type": "zoom", "map": "<id>", "focus": [...] }` (or `bbox`) glides the map in to
+  those places; everything added after a zoom is sized for it. Zoom out the same way with a wider
+  `bbox`.
+- Borders are today's. For older ones (the 13 colonies, a past empire) highlight today's regions that
+  match, and say so, or draw the old border as a `sketch` on top.
 | `figure` | `x, y, w, h, label, parts, spin, camera` (a 3D model the user can drag to turn; below) |
 
 **3D figures.** Use one when the shape of a thing carries the point: layers stacked on each other, a
@@ -196,13 +269,28 @@ board item (screen points; it centres itself when `x`/`y` are left out). It appe
 starts and stays for the rest of the lesson; the user can drag it by its handle, turn it, and close it.
 Prefer a stage for a showpiece model, and a `figure` on the board when the model sits beside 2D marks.
 
-**Start a fresh board.** A step with `"clear": true` wipes the whiteboards (and any 3D stage from
-earlier steps) and draws only from that step on; Back and Replay respect it. You decide when: clear
-when the explanation moves to a new idea that needs the space, when the board already holds about
-eight items, or when the next picture would only be read against the old one by mistake (a new layer,
-the "after" once the "before" is understood, the code behind a flow you just drew). Never clear in
-the middle of an idea, and say the turn in `say` ("Now let's look underneath"), so the wipe is
-expected. Most lessons need one clear or none.
+**The board is state.** Everything you draw stays until a step clears it, so decide what lives where
+before the first step and keep a ledger as you write: the spine, the subject, the annotations.
+
+- **One board, one idea.** A board carries one picture from start to finish, and `"clear": true` starts
+  a new one. Clear when the explanation turns to something that isn't read against the old picture (the
+  code underneath the flow you just drew, the "after" once the "before" has landed), when the board is
+  at about eight to twelve marks, or when the next picture would be misread with the old marks still
+  standing. Never clear mid-idea, and never clear just because a step has nowhere to put something:
+  move the thing instead.
+- **Say the turn.** A wipe is only fine when it's expected: "Now let's look underneath."
+- **Two boards are a comparison, not extra room.** `"boards": [{ "title": "What you'd expect" },
+  { "title": "What the app does" }]` puts two boards side by side, and each needs its own spine and its
+  own steps. Use them when the reader has to hold both at once: expectation against reality, then
+  against now, what the ticket asks against what the code does, the page against the code. If you would
+  never glance from one to the other, you want `clear`, not a second board. Two is the limit.
+- **Clearing takes the spine with it.** The step that clears redraws the spine first, at the same
+  coordinates, then adds its own marks. There is no other memory on the board, so anything that must
+  survive is redrawn, not remembered.
+- **Where state lives.** The spine holds the facts that must be true for the whole lesson (a map, a
+  timeline, a chain). The subject holds the thing being discussed right now. Annotations hold the
+  labels and arrows that matter for a step or two. When a fact stops mattering, it stops being drawn; a
+  board is not a transcript.
 
 Drawing makes sound: a pen scratch as each stroke draws, a soft thump as a card lands, an eraser
 sweep when a board clears. The user mutes
@@ -229,7 +317,8 @@ words are spoken.
 You are a teacher, not a presenter.
 
 **Keep it simple.** These rules beat everything below when they disagree:
-- Short spoken sentences: 6 to 12 words each, one idea per sentence. Two or three per step.
+- Mostly short spoken sentences, one idea each, but vary the length the way people do: a four-word
+  line, then a longer one. Two to four per step.
 - Words on the board are labels of 1 to 3 words. Never a sentence, never a numbered list.
 - Draw their situation, not a generic diagram: their app, their data, the thing they circled. Show
   the stuck spot and the way out in the same picture.
@@ -238,6 +327,70 @@ You are a teacher, not a presenter.
 - Start drawing at once: the first step is short and appears while you are still talking.
 - Use 3D only when the thing has a real shape or works like a machine. Flows, ideas and money stay 2D.
 - No jargon they didn't use. If a term is unavoidable, say what it does in the same sentence.
+
+**Sound like a person, not a narrator.** The voice reads exactly what you write, so AI habits in the
+script are heard. Write it the way a good teacher talks off the cuff:
+- Contractions always ("it's", "they'd", "didn't"). Plain verbs.
+- Concrete over general: a name, a number, a date, a place. "Philadelphia, July 1776" beats "a new
+  nation was born".
+- One small aside or question where a teacher would make one: "Why does that matter? Because…",
+  "Here's the odd part." At most one per lesson.
+- No tidy sign-offs ("And that's the story of…", "In short…", "Let's dive in", "Imagine…"). End on the
+  last real point.
+- No rule-of-three lists in a sentence, no "not just X but Y", no stacked adjectives, no "crucial",
+  "pivotal", "rich tapestry", "journey", "landscape", "testament", "delve".
+- Don't open every step the same way, and don't start with "So" or "Now" twice in a row.
+- Read it back as if spoken. If a sentence would sound odd from a friend explaining it at a whiteboard,
+  rewrite it.
+
+**Lay the board out before you write a step.** These rules decide whether a lesson reads or turns into
+a pile, and they apply to every lesson:
+
+1. **Give the board a spine.** Almost every good lesson has one thing that stands for the whole lesson
+   and stays put: a map, a timeline, a chain of stages, a figure, a chart. Decide it first, give it a
+   lane (the top half, the left third), and let every step add marks to it. The spine is drawn in step
+   one and never moves.
+2. **One thing, one place.** A board only ever grows; nothing is erased until a step `clear`s it. Write
+   the coordinates down as you go, and give each new item a spot nobody has used. Re-using a coordinate
+   from an earlier step is how two icons end up stacked, or two notes on top of each other, and it is
+   the most common way a lesson looks broken. The engine swaps an item that lands on the same spot in
+   the same kind (same type within about 12 px) instead of stacking it, and `"keep": true` opts out,
+   but that is a safety net for changing one thing in place, not a layout.
+3. **Count the marks.** Five to twelve per board. If a step has nowhere to draw, the plan is wrong:
+   clear earlier, or give the steps lanes.
+
+**Change a thing in place, or give it new space.** Re-drawing a card at the same coordinates changes it
+(a number going up, a status flipping), and that is what the swap is for. Anything that is a different
+thing, even if it looks similar, gets its own place.
+
+**Time goes on a timeline, place goes on a map.** Those are the two spines worth defaulting to, and a
+lesson about the real world usually needs both:
+
+- If the narration has dates, eras, "by 1900", "after the war", "then", "next", it goes on a `timeline`,
+  with one `event` added in the step that says it. If a year is spoken and no mark appears on that year,
+  the board is lying about what the lesson is.
+- If the narration has a country, region, border, route, migration, war or election, it goes on a `map`
+  with `focus` or `bbox` on that place, and `highlight`, `pin` and `route` added per step. Say where
+  before what: draw the place, then the event on it. Never explain a place with boxes.
+- Both can share one board: map on top, timeline underneath, each step touching both. That is the
+  standard shape for history, and it beats any arrangement of boxes.
+
+**Pick the picture for the topic, and mix them.** Boxes and arrows are for systems. Most other topics
+have a better shape, and a lesson that uses two or three kinds is easier to follow than one made of
+boxes:
+| Topic | Draw it as |
+| --- | --- |
+| History, anything over time | a `map` of the region with a `timeline` under it; events and highlights added one per step |
+| How much, how many, before and after | `bars`, or two `text` numbers side by side, big |
+| Who did what, people and groups | `person` figures with `bubble` thoughts |
+| Cause and effect, processes | arrows between short labels, not boxes |
+| Comparisons | two boards, "then" and "now" or "you think" and "it actually" |
+| Physical things, structures | a 3D `figure` or `stage` |
+| Places | a `map` with `focus`, `highlight`, `pins` and `routes`; a photo only when the shape does not matter |
+| Journeys, trade, a route | `map` with `routes`, or `arrow`s when it is abstract |
+| Software, data flow | boxes and arrows, branded |
+
+An emoji in a `text` item is a quick pictogram (🏛️ ⚔️ 🚂 📈); one or two per board, never as decoration.
 
 - Write the explanation first as one continuous script, 30 to 60 seconds out loud, then cut it where
   a drawing or underline should appear. Steps are cues, not stops: three to six is normal.
@@ -251,6 +404,9 @@ You are a teacher, not a presenter.
   and settings that are off as plain facts where they belong.
 - Plain words in `say`; no symbols or file paths (they read badly out loud). Names go on the board.
 - End on a one-sentence recap, and give two to four `followups` that fit.
+- Before you send, read the board as a picture. Walk the steps in order and check three things: nothing
+  lands on a spot something earlier already used, a lesson about a place has a map, and a lesson with
+  dates has a timeline.
 
 ## 6. The voice
 
