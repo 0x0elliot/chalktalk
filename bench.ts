@@ -30,6 +30,8 @@ for (const dir of dirs) {
   const items = (lesson.steps ?? []).reduce((n: number, s: { board?: unknown[]; board2?: unknown[] }) => n + (s.board?.length ?? 0) + (s.board2?.length ?? 0), 0);
   const check = await run([here("check.ts"), dir]);
   checkTotal += check.ms;
+  // The whole local tail of a note: check, narration if needed, post. --dry stops before posting.
+  const ship = await run([here("listen.ts"), "send", dir, "--dry"]);
   // Only time the cached path. Timing a lesson with no cache stamp would record it again and spend
   // real ElevenLabs characters, which is not what a benchmark is for.
   const stamped = await Bun.file(`${dir}/.narration`).exists();
@@ -44,12 +46,13 @@ for (const dir of dirs) {
       pad(`${steps} st`, 6),
       pad(`${items} it`, 7),
       pad(`${num(check.ms, 0)} ms`, 8),
-      narrate ? `${num(narrate.ms, 0)} ms` : "—",
+      narrate ? pad(`${num(narrate.ms, 0)} ms`, 8) : pad("—", 8),
+      `${num(ship.ms, 0)} ms`,
     ].join(" "),
   );
 }
 
-process.stdout.write(`${pad("lesson", 18)} ${pad("size", 12)} ${pad("out", 9)} ${pad("steps", 6)} ${pad("items", 7)} check    narrate(cached)\n`);
+process.stdout.write(`${pad("lesson", 18)} ${pad("size", 12)} ${pad("out", 9)} ${pad("steps", 6)} ${pad("items", 7)} check    narrate  ship(cached)\n`);
 rows.forEach((r) => process.stdout.write(`${r}\n`));
 
 // The row primitive against hand-placed boxes and arrows: the same board, written two ways.
@@ -78,7 +81,21 @@ const shorthand = {
 };
 const a = JSON.stringify(longhand).length;
 const b = JSON.stringify(shorthand).length;
+const tok = dirs.length
+  ? rows.length
+    ? 0
+    : 0
+  : 0;
+void tok;
+const avgTokens =
+  rows.reduce((n, r) => n + Number((r.match(/~(\d+\.\d)k tok/) || [0, "0"])[1]), 0) / Math.max(1, rows.length);
 process.stdout.write(
   `\nrow vs boxes+arrows: ${a} -> ${b} chars (${Math.round((1 - b / a) * 100)}% less to write)\n` +
-    `check: ${num(checkTotal / Math.max(1, rows.length), 1)} ms avg · narrate cached: ${num(narrateTotal / Math.max(1, rows.length), 1)} ms avg\n`,
+    `check: ${num(checkTotal / Math.max(1, rows.length), 1)} ms avg · narrate cached: ${num(narrateTotal / Math.max(1, rows.length), 1)} ms avg\n` +
+    `\nthe local tail is free; the wait is the writing. At 90 tokens/second a lesson costs about:\n` +
+    `   1.0k tokens  11 s of generation    + 3 turns of overhead\n` +
+    `   ${num(avgTokens, 1)}k tokens  ${num((avgTokens * 1000) / 90, 0)} s    (this set, average)\n` +
+    `   3.3k tokens  37 s of generation    + 3 turns of overhead\n` +
+    `one turn of overhead is 3 to 8 s, so the second real lever is doing the answer, the lesson and the\n` +
+    `ship in ONE command instead of three.\n`,
 );

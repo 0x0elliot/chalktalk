@@ -173,11 +173,24 @@ makes the lesson good — then ship it while the pictures are still being drawn:
 
 1. Put the full script in the head of the lesson and only step one in the file: `"stream": true`, step
    one with its board, nothing else.
-2. `listen.ts send <dir> --stream --as "<model>"`. It records step one (a second), posts it, and leaves
-   a watcher that records any step that has no clip yet.
+2. `listen.ts ship <dir> --stream --as "<model>"`, with the lesson on stdin. It records step one (a
+   second), posts it, and leaves a watcher that records any step that has no clip yet.
 3. Append step two, then three, to the same file as you draw them. The watcher records each one, the
    page picks them up between steps, and only the boards are rebuilt — the model on screen never moves.
 4. No `done` flag is needed: a lesson whose steps all have clips and has stopped changing is finished.
+
+**One call, not three.** The answer, the plan, the file and the ship can be a single shell line, which
+removes two turns of overhead from every note:
+
+```sh
+mkdir -p /tmp/lesson-x && bun <skill-dir>/listen.ts reply "…" && bun <skill-dir>/listen.ts plan "…" "…" &&
+bun <skill-dir>/listen.ts step 2 && bun <skill-dir>/listen.ts ship /tmp/lesson-x --as "<model>" --stream <<'JSON'
+{ "title": "…", "board": { "width": 640, "height": 340 }, "stream": true, "steps": [ … ] }
+JSON
+```
+
+The heredoc is quoted, so apostrophes, quotes and backticks in `say` need no escaping. Everything before
+`ship` must sit on the lines above the redirect.
 
 That gets the first drawing on screen in about a fifth of the time, without thinning the lesson. If the
 whole file is already written when you send, skip `--stream`; a plain send is one step simpler.

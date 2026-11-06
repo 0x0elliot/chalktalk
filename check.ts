@@ -140,8 +140,8 @@ if (!steps.length) warn(0, "no steps");
 if (steps.length > 7) warn(0, `${steps.length} steps is long for one answer`);
 if (steps.length && !sawClear && steps.length > 4) warn(0, "no clear in a long lesson — check the board can hold it");
 
-const audio = Bun.file(`${dir}/lesson.mp3`);
-if (!(await audio.exists())) warn(0, "not narrated yet (no lesson.mp3)");
+const hasClips = steps.length > 0 && steps.every((step: { audio?: string }) => step.audio);
+if (!hasClips && !(await Bun.file(`${dir}/lesson.mp3`).exists())) warn(0, "not narrated yet (no audio)");
 
 if (problems.length) {
   problems.forEach((p) => process.stdout.write(`  ${p}\n`));

@@ -549,6 +549,17 @@ async function watch(dir: string): Promise<void> {
   }
 }
 
+// Answer, write and ship in one shell line: the lesson arrives on stdin, so a note costs one round
+// trip instead of three. `bun listen.ts ship <dir> --as "<model>" <<'JSON' … JSON`
+async function ship(dir: string): Promise<void> {
+  if (!dir) fail("usage: bun listen.ts ship <lesson-dir> [--stream] < lesson.json");
+  const text = await Bun.stdin.text();
+  if (!text.trim()) fail("ship reads the lesson on stdin; nothing arrived");
+  await mkdir(resolvePath(dir), { recursive: true });
+  await Bun.write(`${resolvePath(dir)}/lesson.json`, text);
+  await send(dir);
+}
+
 // check, narrate and post in one call, then put the waiter back: the whole tail of a lesson
 // is one command, so the user is not waiting on three separate round trips.
 async function send(dir: string): Promise<void> {
@@ -648,6 +659,7 @@ const words = positional();
 if (command === "serve") await serve();
 else if (command === "start") await start();
 else if (command === "send") await send(words[0]);
+else if (command === "ship") await ship(words[0]);
 else if (command === "replay") await replay(words[0] ?? "");
 else if (command === "watch") await watch(words[0] ?? "");
 else if (command === "saved") {
@@ -682,4 +694,4 @@ else if (command === "icons") {
   const files = await readdir(`${HOME}/library`).catch(() => [] as string[]);
   out(files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).join("  ") || "the sketch library is empty");
 }
-else fail("usage: bun listen.ts start | send <dir> | replay <slug> | saved | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");
+else fail("usage: bun listen.ts start | ship <dir> | send <dir> | replay <slug> | saved | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");
