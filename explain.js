@@ -450,7 +450,7 @@
       el.append(tag);
       el.addEventListener("pointerenter", () => (tools.style.opacity = "1"));
       el.addEventListener("pointerleave", () => (tools.style.opacity = "0"));
-      const rec = { el, host, tag, built: -1, closed: false };
+      const rec = { el, host, tag, built: -1, closed: false, api: null };
       shut.addEventListener("click", (e) => {
         e.stopPropagation();
         rec.closed = true;
@@ -479,28 +479,30 @@
     });
 
     function showStages() {
-      let since = 0;
-      for (let k = current; k > 0; k--) {
-        if (steps[k].clear) {
-          since = k;
-          break;
-        }
-      }
       stages.forEach((rec, id) => {
+        // The last thing this lesson said about the stage wins: parts in place, or hidden.
         let latest = -1;
+        let hidden = false;
         for (let i = 0; i <= current; i++) {
           const st = steps[i].stage;
-          if (st && String(st.id || "stage") === id) latest = i;
+          if (!st || String(st.id || "stage") !== id) continue;
+          hidden = Boolean(st.hide);
+          latest = hidden ? -1 : i;
         }
-        const on = latest >= 0 && latest >= since && !rec.closed;
+        const on = latest >= 0 && !hidden && !rec.closed;
         if (on && rec.built !== latest) {
           const spec = steps[latest].stage;
-          rec.host.replaceChildren();
-          window.Chalktalk.figure(rec.host, spec, window.CHALKTALK_THREE);
+          if (rec.built < 0) {
+            rec.api = window.Chalktalk.figure(rec.host, spec, window.CHALKTALK_THREE);
+            if (window.Chalktalk.sound) window.Chalktalk.sound.thump(0.1);
+          } else {
+            // Same element, same camera: only the parts change, so a model the user moved or turned
+            // stays exactly where it is.
+            Promise.resolve(rec.api).then((api) => api && api.setParts(spec.parts));
+          }
           rec.tag.textContent = spec.label || "";
           rec.tag.style.display = spec.label ? "" : "none";
           rec.built = latest;
-          if (window.Chalktalk.sound) window.Chalktalk.sound.thump(0.1);
         }
         rec.el.style.display = on ? "" : "none";
         requestAnimationFrame(() => (rec.el.style.opacity = on ? "1" : "0"));

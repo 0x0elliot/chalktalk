@@ -148,18 +148,31 @@
     const group = new T.Group();
     scene.add(group);
     const tags = [];
-    (it.parts || []).slice(0, 60).forEach((p) => {
-      const mesh = part3d(T, p);
-      group.add(mesh);
-      if (p.label) {
-        const tag = document.createElement("div");
-        tag.textContent = p.label;
-        tag.style.cssText =
-          "position:absolute;transform:translate(-50%,-100%);padding:2px 10px;border-radius:999px;background:rgba(251,250,246,.92);color:#30333A;font:16px 'Patrick Hand',system-ui,sans-serif;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)";
-        host.append(tag);
-        tags.push({ mesh, tag });
-      }
-    });
+    // Parts can change between steps without touching the camera, so a model the user has turned
+    // or zoomed stays put while it gains pieces.
+    const setParts = (parts) => {
+      [...group.children].forEach((mesh) => {
+        group.remove(mesh);
+        mesh.geometry?.dispose?.();
+        const mat = mesh.material;
+        if (Array.isArray(mat)) mat.forEach((m) => m?.dispose?.());
+        else mat?.dispose?.();
+      });
+      tags.splice(0).forEach(({ tag }) => tag.remove());
+      (parts || []).slice(0, 60).forEach((p) => {
+        const mesh = part3d(T, p);
+        group.add(mesh);
+        if (p.label) {
+          const tag = document.createElement("div");
+          tag.textContent = p.label;
+          tag.style.cssText =
+            "position:absolute;transform:translate(-50%,-100%);padding:2px 10px;border-radius:999px;background:rgba(251,250,246,.92);color:#30333A;font:16px 'Patrick Hand',system-ui,sans-serif;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.12)";
+          host.append(tag);
+          tags.push({ mesh, tag });
+        }
+      });
+    };
+    setParts(it.parts);
     const bounds = new T.Box3().setFromObject(group);
     const size = bounds.getSize(new T.Vector3());
     const center = bounds.getCenter(new T.Vector3());
@@ -220,6 +233,7 @@
         tag.style.top = `${((1 - v.y) / 2) * host.clientHeight - 6}px`;
       });
     });
+    return { setParts };
   }
 
   function logo(parent, brand, x, y, size) {
