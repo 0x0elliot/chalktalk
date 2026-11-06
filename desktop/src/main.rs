@@ -6,13 +6,78 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
-use tauri::tray::TrayIconBuilder;
+use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
+use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Manager, Monitor, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, ShortcutState};
 use xcap::image::{imageops, RgbaImage};
 
 const HOTKEY: &str = "ctrl+alt+c";
+const VOICE_HOTKEY: &str = "ctrl+alt+v";
+const ASK_HOTKEY: &str = "ctrl+alt+a";
+
+struct Tray {
+    icon: TrayIcon,
+    voice: MenuItem<tauri::Wry>,
+}
+
+fn config_path() -> PathBuf {
+    screens_dir().parent().map(|p| p.join("config.json")).unwrap_or_else(|| PathBuf::from("config.json"))
+}
+
+fn read_config() -> Value {
+    std::fs::read_to_string(config_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| json!({}))
+}
+
+fn current_voice() -> String {
+    read_config()["voice"].as_str().unwrap_or("kokoro").to_string()
+}
+
+fn voice_name(voice: &str) -> &'static str {
+    if voice == "elevenlabs" { "ElevenLabs" } else { "Kokoro" }
+}
+
+fn voice_label(voice: &str) -> String {
+    let key = if cfg!(target_os = "macos") { "⌃⌥V" } else { "Ctrl+Alt+V" };
+    format!("Voice: {}  ({key} switches)", voice_name(voice))
+}
+
+fn switch_voice(app: &AppHandle) {
+    let mut config = read_config();
+    if !config.is_object() {
+        config = json!({});
+    }
+    let next = if config["voice"].as_str() == Some("elevenlabs") { "kokoro" } else { "elevenlabs" };
+    config["voice"] = json!(next);
+    let path = config_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap_or_default());
+    let name = voice_name(next);
+    if let Some(tray) = app.try_state::<Tray>() {
+        let _ = tray.voice.set_text(voice_label(next));
+        let _ = tray.icon.set_tooltip(Some(format!("Chalktalk · voice: {name}")));
+        #[cfg(target_os = "macos")]
+        {
+            let _ = tray.icon.set_title(Some(format!("Voice: {name}")));
+            let handle = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(2500));
+                if let Some(tray) = handle.try_state::<Tray>() {
+                    let _ = tray.icon.set_title(None::<String>);
+                }
+            });
+        }
+    }
+    if app.state::<Overlay>().showing.load(Ordering::SeqCst) {
+        if let Some(window) = overlay(app) {
+            let _ = window.eval(&format!(
+                "(() => {{ const d = document.createElement('div'); d.textContent = 'Voice: {name}. New answers use it.'; d.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:999px;background:#2c2c2a;color:#fff;font:14px system-ui,sans-serif;z-index:2147483647;box-shadow:0 8px 24px #0004;pointer-events:none'; document.body.append(d); setTimeout(() => d.remove(), 2200); }})()"
+            ));
+        }
+    }
+}
 const KEPT_FILES: usize = 40;
 
 struct Capture {
@@ -90,7 +155,7 @@ fn frontmost_window() -> (String, String) {
     }
 }
 
-fn show(app: &AppHandle) {
+fn show(app: &AppHandle, mode: &str) {
     let Some(window) = overlay(app) else { return };
     let state = app.state::<Overlay>();
     let cursor = window.cursor_position().unwrap_or(PhysicalPosition::new(0.0, 0.0));
@@ -120,7 +185,7 @@ fn show(app: &AppHandle) {
     let bottom = ((mp.y + ms.height as i32) - (area.position.y + area.size.height as i32)).max(0) as f64 / scale;
     let right = ((mp.x + ms.width as i32) - (area.position.x + area.size.width as i32)).max(0) as f64 / scale;
     let _ = window.eval(&format!(
-        "window.__chalktalkSafe = {{ top: {top:.0}, right: {right:.0}, bottom: {bottom:.0}, left: {left:.0} }}; window.__chalktalkStart && window.__chalktalkStart()"
+        "window.__chalktalkSafe = {{ top: {top:.0}, right: {right:.0}, bottom: {bottom:.0}, left: {left:.0} }}; window.__chalktalkMode = {mode:?}; window.__chalktalkStart && window.__chalktalkStart()"
     ));
 }
 
@@ -132,10 +197,14 @@ fn hide(app: &AppHandle) {
 }
 
 fn toggle(app: &AppHandle) {
+    toggle_mode(app, "draw");
+}
+
+fn toggle_mode(app: &AppHandle, mode: &str) {
     if app.state::<Overlay>().showing.load(Ordering::SeqCst) {
         hide(app);
     } else {
-        show(app);
+        show(app, mode);
     }
 }
 
@@ -244,29 +313,45 @@ fn main() {
 
             let label = if cfg!(target_os = "macos") { "Explain something  ⌃⌥C" } else { "Explain something  Ctrl+Alt+C" };
             let explain = MenuItemBuilder::with_id("explain", label).build(app)?;
+            let ask_label = if cfg!(target_os = "macos") { "Just ask  ⌃⌥A" } else { "Just ask  Ctrl+Alt+A" };
+            let ask = MenuItemBuilder::with_id("ask", ask_label).build(app)?;
+            let voice = MenuItemBuilder::with_id("voice", voice_label(&current_voice())).build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit Chalktalk").build(app)?;
-            let menu = MenuBuilder::new(app).item(&explain).separator().item(&quit).build()?;
+            let menu = MenuBuilder::new(app).item(&explain).item(&ask).item(&voice).separator().item(&quit).build()?;
             let mut tray = TrayIconBuilder::new().menu(&menu).tooltip("Chalktalk");
             if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
-            tray.on_menu_event(|app, event| match event.id().as_ref() {
-                "explain" => toggle(app),
-                "quit" => app.exit(0),
-                _ => {}
-            })
-            .build(app)?;
+            let tray = tray
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "explain" => toggle(app),
+                    "ask" => toggle_mode(app, "ask"),
+                    "voice" => switch_voice(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+            app.manage(Tray { icon: tray, voice });
 
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
-                    .with_handler(|app, _shortcut, event| {
-                        if event.state() == ShortcutState::Pressed {
+                    .with_handler(|app, shortcut, event| {
+                        if event.state() != ShortcutState::Pressed {
+                            return;
+                        }
+                        if shortcut.key == Code::KeyV {
+                            switch_voice(app);
+                        } else if shortcut.key == Code::KeyA {
+                            toggle_mode(app, "ask");
+                        } else {
                             toggle(app);
                         }
                     })
                     .build(),
             )?;
             app.global_shortcut().register(HOTKEY)?;
+            app.global_shortcut().register(VOICE_HOTKEY)?;
+            app.global_shortcut().register(ASK_HOTKEY)?;
 
             follow_cursor(app.handle().clone());
             Ok(())

@@ -13,4 +13,7 @@ fi
 (cd "$here" && bun install --production --silent)
 ln -sfn "$here" "$target"
 echo "Installed: $target -> $here"
+if [ ! -f "$HOME/.chalktalk/config.json" ] && [ -t 0 ]; then
+  (cd "$here" && bun setup.ts)
+fi
 echo "Next: in Claude Code, type /chalktalk listen, then add the bookmark from README.md."

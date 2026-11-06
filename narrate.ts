@@ -23,10 +23,16 @@ function flag(name: string): string | undefined {
   return i >= 0 ? flags[i + 1] : undefined;
 }
 
+type KeySource =
+  | { from: "env"; name?: string }
+  | { from: "keychain"; service?: string }
+  | { from: "gcloud"; project: string; secret: string }
+  | { from: "command"; command: string };
+type Config = { voice?: string; elevenlabsVoice?: string; keychainService?: string; elevenlabsKey?: KeySource };
+const configFile = Bun.file(`${HOME}/config.json`);
+const config: Config = (await configFile.exists()) ? ((await configFile.json().catch(() => ({}))) as Config) : {};
+
 async function configuredEngine(): Promise<string> {
-  const file = Bun.file(`${HOME}/config.json`);
-  if (!(await file.exists())) return "kokoro";
-  const config = (await file.json().catch(() => ({}))) as { voice?: string };
   return config.voice === "elevenlabs" ? "elevenlabs" : "kokoro";
 }
 
@@ -46,12 +52,26 @@ function elevenKey(): string {
     const result = Bun.spawnSync(command, { stderr: "ignore" });
     return result.exitCode === 0 ? result.stdout.toString().trim() : "";
   };
-  return process.env.ELEVENLABS_API_KEY || read(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"]);
+  const source = config.elevenlabsKey;
+  if (process.env.ELEVENLABS_API_KEY) return process.env.ELEVENLABS_API_KEY;
+  if (source?.from === "env") return process.env[source.name || "ELEVENLABS_API_KEY"] || "";
+  if (source?.from === "gcloud") return read(["gcloud", "secrets", "versions", "access", "latest", `--secret=${source.secret}`, `--project=${source.project}`]);
+  if (source?.from === "command") return read(process.platform === "win32" ? ["cmd", "/c", source.command] : ["sh", "-c", source.command]);
+  const service = (source?.from === "keychain" && source.service) || config.keychainService || KEYCHAIN_SERVICE;
+  return process.platform === "darwin" ? read(["security", "find-generic-password", "-s", service, "-w"]) : "";
+}
+
+function keyHelp(): string {
+  const source = config.elevenlabsKey;
+  if (source?.from === "gcloud") return `could not read secret ${source.secret} in project ${source.project} (is gcloud logged in?)`;
+  if (source?.from === "command") return "the key command printed nothing";
+  if (source?.from === "env") return `${source.name || "ELEVENLABS_API_KEY"} is not set`;
+  return "no key found; run bun setup.ts in the chalktalk folder to choose where it comes from";
 }
 
 async function withElevenLabs(): Promise<Spoken> {
   const key = elevenKey();
-  if (!key) throw new Error(`no ElevenLabs key (set ELEVENLABS_API_KEY, or save it in the Keychain as service ${KEYCHAIN_SERVICE})`);
+  if (!key) throw new Error(`no ElevenLabs key: ${keyHelp()}`);
   let script = "";
   const starts = says.map((words) => {
     if (script && words) script += " ";
@@ -59,7 +79,7 @@ async function withElevenLabs(): Promise<Spoken> {
     script += words;
     return at;
   });
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${flag("voice") ?? ELEVEN_VOICE}/with-timestamps?output_format=mp3_44100_128`, {
+  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${flag("voice") ?? config.elevenlabsVoice ?? ELEVEN_VOICE}/with-timestamps?output_format=mp3_44100_128`, {
     method: "POST",
     headers: { "xi-api-key": key, "Content-Type": "application/json" },
     body: JSON.stringify({ text: script, model_id: ELEVEN_MODEL, voice_settings: { stability: 0.5, similarity_boost: 0.75 } }),

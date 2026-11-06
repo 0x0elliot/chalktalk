@@ -51,6 +51,7 @@ pass through to your apps everywhere except on its own boxes.
    it starts in a second. By hand: `bun ~/chalktalk/desktop.ts start` (also `stop`, `rebuild`, `status`).
 3. Press **⌃⌥C** (Control+Option+C) on a Mac, or **Ctrl+Alt+C** on Windows and Linux, anywhere. Circle,
    type or dictate, and press Cmd+Enter (Ctrl+Enter on Windows and Linux). The same hotkey or Esc closes it.
+   Just want to ask something, no drawing? **⌃⌥A** (Ctrl+Alt+A) opens the question box straight away.
 4. Allow screen recording when your system asks (on a Mac: System Settings, Privacy & Security, Screen
    Recording), so Claude can see what you circled. Restart the app after allowing it.
 
@@ -73,16 +74,13 @@ Clicking Chalktalk on a page you asked about before offers **Replay** for recent
 
 - **Kokoro** (default): a free, open-source voice model that runs on your machine. The first answer
   installs it into `~/.chalktalk/kokoro` (about 450 MB).
-- **ElevenLabs** (optional): more natural; needs an API key. Turn it on in `~/.chalktalk/config.json`:
+- **ElevenLabs** (optional): more natural; needs an API key. The installer asks once which voice you
+  want and where your key lives: an environment variable, the macOS Keychain, Google Cloud Secret
+  Manager, or any command that prints it (1Password, Doppler, pass). Chalktalk reads the key when it
+  speaks and never stores it. Change your answer any time with `bun ~/chalktalk/setup.ts`.
 
-  ```json
-  { "voice": "elevenlabs" }
-  ```
-
-  and set `ELEVENLABS_API_KEY`, or save the key in your macOS Keychain:
-  `security add-generic-password -a "$USER" -s elevenlabs-chalktalk -w`
-
-If one engine fails, Chalktalk uses the other and says so.
+Switch voices on the fly with **⌃⌥V** on a Mac (**Ctrl+Alt+V** elsewhere); the next answer uses it. If
+one engine fails, Chalktalk uses the other and says why.
 
 ## Privacy and safety
 

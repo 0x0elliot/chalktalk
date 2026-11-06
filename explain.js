@@ -192,7 +192,7 @@
             width: meta.width || 600,
             height: meta.height || (boardKeys.length > 1 ? 260 : 420),
             autoplay: false,
-            steps: steps.map((s) => ({ caption: s.caption, items: s[key] || [] })),
+            steps: steps.map((s) => ({ caption: s.caption, items: s[key] || [], clear: Boolean(s.clear) })),
           }),
         });
       });
@@ -474,7 +474,14 @@
     });
     function showStages() {
       stages.forEach((s) => {
-        const on = s.index <= current && !s.closed;
+        let since = 0;
+        for (let k = current; k > 0; k--) {
+          if (steps[k].clear) {
+            since = k;
+            break;
+          }
+        }
+        const on = s.index <= current && s.index >= since && !s.closed;
         s.el.style.display = on ? "" : "none";
         if (on && !s.built) {
           s.built = true;

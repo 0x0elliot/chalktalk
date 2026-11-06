@@ -96,6 +96,12 @@ Speed matters: the user is waiting at the screen. No fixed waits, no polling.
    `path:line`; it becomes the "underneath" part of the lesson.
 7. Answer with a lesson on their page (below). If you answer in chat instead, run `listen.ts idle`.
 
+**Just asking.** A note with `"mode": "ask"` came from the ask hotkey (⌃⌥A on a Mac, Ctrl+Alt+A
+elsewhere): the user skipped drawing and just asked. `screen` still holds the whole screenshot, so
+read it for context, but they may be asking about anything. Post the quick answer (`listen.ts reply`)
+within seconds; that is often the whole answer. Then send a short lesson (one to three steps, spoken,
+a small board only if a picture really helps) so they hear it.
+
 **Notes from the desktop app (any app on screen).** A note with `"surface": "screen"` came from the
 Chalktalk desktop app (`desktop/`, a Tauri app for Mac, Windows and Linux), not a web page. Its
 `screen` field holds `app` and `window` (what was in front), `platform`, `screenSize`, `screenshot` (the
@@ -190,7 +196,16 @@ board item (screen points; it centres itself when `x`/`y` are left out). It appe
 starts and stays for the rest of the lesson; the user can drag it by its handle, turn it, and close it.
 Prefer a stage for a showpiece model, and a `figure` on the board when the model sits beside 2D marks.
 
-Drawing makes sound: a pen scratch as each stroke draws, a soft thump as a card lands. The user mutes
+**Start a fresh board.** A step with `"clear": true` wipes the whiteboards (and any 3D stage from
+earlier steps) and draws only from that step on; Back and Replay respect it. You decide when: clear
+when the explanation moves to a new idea that needs the space, when the board already holds about
+eight items, or when the next picture would only be read against the old one by mistake (a new layer,
+the "after" once the "before" is understood, the code behind a flow you just drew). Never clear in
+the middle of an idea, and say the turn in `say` ("Now let's look underneath"), so the wipe is
+expected. Most lessons need one clear or none.
+
+Drawing makes sound: a pen scratch as each stroke draws, a soft thump as a card lands, an eraser
+sweep when a board clears. The user mutes
 it with the speaker button; `"sound": false` on a lesson keeps one silent.
 
 Pictures make a lesson clearer: copy the user's `crop`, a screenshot of a page you opened, or a
@@ -213,8 +228,19 @@ words are spoken.
 
 You are a teacher, not a presenter.
 
-- Write the explanation first as one continuous script, 40 to 90 seconds out loud, then cut it where
-  a drawing or underline should appear. Steps are cues, not stops: three to eight is normal.
+**Keep it simple.** These rules beat everything below when they disagree:
+- Short spoken sentences: 6 to 12 words each, one idea per sentence. Two or three per step.
+- Words on the board are labels of 1 to 3 words. Never a sentence, never a numbered list.
+- Draw their situation, not a generic diagram: their app, their data, the thing they circled. Show
+  the stuck spot and the way out in the same picture.
+- Colour carries meaning: the problem in red, the answer or path in green, the deciding thing in
+  amber. 5 to 12 marks per board; fill the space rather than leaving it half empty.
+- Start drawing at once: the first step is short and appears while you are still talking.
+- Use 3D only when the thing has a real shape or works like a machine. Flows, ideas and money stay 2D.
+- No jargon they didn't use. If a term is unavoidable, say what it does in the same sentence.
+
+- Write the explanation first as one continuous script, 30 to 60 seconds out loud, then cut it where
+  a drawing or underline should appear. Steps are cues, not stops: three to six is normal.
 - Break the thing into small units in the order they happen: what it is, what it does, then why.
 - Mix the page and the whiteboard. The page answers "which one, where"; the whiteboard answers "how,
   why" for the parts nobody can see. In most steps both appear together.
@@ -233,12 +259,16 @@ You are a teacher, not a presenter.
 - **Kokoro** (default): open source (Apache-2.0), runs locally for free. The first run installs it into
   `~/.chalktalk/kokoro` (about 450 MB). It does not report word timings, so cues are placed by where
   their phrase falls in the step.
-- **ElevenLabs** (optional): more natural, with exact per-character timing. The key comes from
-  `ELEVENLABS_API_KEY` or the Keychain (service `elevenlabs-chalktalk`); never ask for it in chat.
+- **ElevenLabs** (optional): more natural, with exact per-character timing. Never ask for the key in
+  chat. Where it comes from is the user's choice, made once by `bun <skill-dir>/setup.ts` (the
+  installer runs it): the `ELEVENLABS_API_KEY` variable, the macOS Keychain, Google Cloud Secret
+  Manager, or any command that prints it. Chalktalk reads it at narration time and never stores it.
 
-The user picks with `~/.chalktalk/config.json` (`{ "voice": "elevenlabs" }`), or one run takes
-`--engine kokoro|elevenlabs` and `--voice <id>`. If an engine fails, the script tries the other and says
-so; tell the user.
+The choice lives in `~/.chalktalk/config.json` (`voice`, `elevenlabsVoice`, `elevenlabsKey`). The user
+switches engines on the fly with the voice hotkey (⌃⌥V on a Mac, Ctrl+Alt+V elsewhere); it applies to
+the next answer. One run can take `--engine kokoro|elevenlabs` and `--voice <id>`. If an engine fails,
+the script tries the other and says why; tell the user, and point them at `setup.ts` when the key is
+missing.
 
 ## Limits
 

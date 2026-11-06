@@ -73,7 +73,7 @@
     })
     .catch(() => {});
 
-  fetch(`http://127.0.0.1:47321/recent?path=${encodeURIComponent(location.pathname.replace(/\/+$/, ""))}`)
+  fetch(`http://127.0.0.1:47321/recent?path=${encodeURIComponent(SCREEN ? "" : location.pathname.replace(/\/+$/, ""))}`)
     .then((r) => r.json())
     .then((saved) => {
       if (!Array.isArray(saved) || !saved.length) return;
@@ -401,7 +401,7 @@
     panel.style.cssText = `position:fixed;left:${left}px;top:${top}px;width:420px;pointer-events:auto;background:#fff;color:#2c2c2a;border:2px solid #E24B4A;border-radius:12px;padding:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);font:14px system-ui,sans-serif`;
     const title = document.createElement("div");
     title.style.cssText = "margin-bottom:8px;font-weight:500";
-    title.textContent = "What's wrong here? Talk or type.";
+    title.textContent = state.mode === "ask" ? "Ask me anything. Talk or type." : "What's wrong here? Talk or type.";
     const note = document.createElement("textarea");
     note.placeholder = "Wispr types straight into this box";
     note.style.cssText = "width:100%;box-sizing:border-box;height:110px;font:15px system-ui,sans-serif;padding:8px;border:1px solid #ccc;border-radius:8px;resize:vertical;color:#2c2c2a;background:#fff";
@@ -516,6 +516,11 @@
     }
   }
   window.addEventListener("keydown", onKey, true);
+  if (window.__chalktalkMode === "ask") {
+    window.__chalktalkMode = null;
+    state.mode = "ask";
+    requestAnimationFrame(() => finish());
+  }
 
   function result() {
     return {
@@ -526,6 +531,7 @@
       viewport: { width: innerWidth, height: innerHeight, dpr: devicePixelRatio },
       scroll: { x: Math.round(scrollX), y: Math.round(scrollY) },
       note: state.note || null,
+      mode: state.mode || "draw",
       bbox: state.bbox,
       strokes: state.strokes.map((s) => s.points.filter((_, i) => i % 3 === 0).map(([x, y]) => [Math.round(x), Math.round(y)])),
       targets: state.targets,

@@ -639,6 +639,25 @@
       src.start(t0, Math.random());
       src.stop(t0 + 0.08);
     },
+    wipe(delay) {
+      const c = mixer();
+      if (!c) return;
+      const t0 = c.currentTime + Math.max(0, delay);
+      const src = c.createBufferSource();
+      src.buffer = noise;
+      const band = c.createBiquadFilter();
+      band.type = "bandpass";
+      band.Q.value = 0.7;
+      band.frequency.setValueAtTime(900, t0);
+      band.frequency.exponentialRampToValueAtTime(2600, t0 + 0.32);
+      const gain = c.createGain();
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.07, t0 + 0.08);
+      gain.gain.linearRampToValueAtTime(0, t0 + 0.36);
+      src.connect(band).connect(gain).connect(c.destination);
+      src.start(t0, Math.random());
+      src.stop(t0 + 0.4);
+    },
     thump(delay) {
       const c = mixer();
       if (!c) return;
@@ -664,9 +683,15 @@
     );
     const near = (r, pad) => ends.some((p) => Array.isArray(p) && p[0] > r.x - pad && p[0] < r.x + r.w + pad && p[1] > r.y - pad && p[1] < r.y + r.h + pad);
     const gap = 10;
-    const placed = [];
+    let placed = [];
+    const all = [];
     const hit = (r) => placed.find((p) => r.x < p.x + p.w + gap && p.x < r.x + r.w + gap && r.y < p.y + p.h + gap && p.y < r.y + r.h + gap);
-    items.forEach((it) => {
+    (scene.steps || []).forEach((step) => {
+      if (step.clear) placed = [];
+      (step.items || []).forEach((it) => place(it));
+    });
+    return all;
+    function place(it) {
       if (!["box", "bubble", "figure"].includes(it.type) || ![it.x, it.y, it.w, it.h].every(Number.isFinite)) return;
       const r = { x: it.x, y: it.y, w: it.w, h: it.h };
       if (!near(r, 24)) {
@@ -679,8 +704,8 @@
         it.y = r.y;
       }
       placed.push(r);
-    });
-    return placed;
+      all.push(r);
+    }
   }
 
   function mount(container, scene) {
@@ -780,11 +805,27 @@
       if (clip) clip.pause();
       if (!steps.length) return;
       const mine = ++run;
+      const before = current;
       current = Math.max(0, Math.min(steps.length - 1, i));
+      let start = 0;
+      for (let k = current; k > 0; k--) {
+        if (scene.steps[k].clear) {
+          start = k;
+          break;
+        }
+      }
       steps.forEach((_, k) => hide(k));
       svg.getBoundingClientRect();
-      for (let k = 0; k < current; k++) reveal(k, false);
+      for (let k = start; k < current; k++) reveal(k, false);
       const step = scene.steps[current];
+      if (step.clear && current === before + 1 && !still) {
+        if (scene.sound !== false) sound.wipe(0);
+        svg.style.transition = "none";
+        svg.style.opacity = "0";
+        svg.getBoundingClientRect();
+        svg.style.transition = "opacity .35s ease";
+        svg.style.opacity = "1";
+      }
       caption.textContent = step.caption || "";
       say.textContent = step.say || "";
       const took = reveal(current, !still, stretch);
