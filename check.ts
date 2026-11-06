@@ -58,9 +58,11 @@ steps.forEach((step, i) => {
     if (["box", "text", "icon", "sketch", "image", "person", "bubble", "figure"].includes(it.type) && Number.isFinite(it.x) && Number.isFinite(it.y)) {
       const before = spots.find((s) => s.type === it.type && Math.abs(s.x - it.x) <= 12 && Math.abs(s.y - it.y) <= 12);
       if (before) {
-        warn(n, `${it.type} at (${fmt(it.x)},${fmt(it.y)}) lands on step ${before.step}'s ${before.type} — intentional update, or move it?`);
-        // The engine drops the earlier item, so it cannot also collide with anything.
-        texts.filter((t) => t.step === before.step && Math.abs(t.y - it.y) < 24).forEach((t) => (t.dropped = true));
+        warn(n, `${it.type} at (${fmt(it.x)},${fmt(it.y)}) lands on step ${before.step}'s ${it.type} — intentional update, or move it?`);
+        // The engine drops the earlier item, so it cannot also collide with anything, and the new
+        // one becomes the item later steps land on.
+        texts.filter((t) => t.step === before.step && Math.abs(t.y - it.y) < 30).forEach((t) => (t.dropped = true));
+        spots.splice(spots.indexOf(before), 1);
       }
       spots.push({ type: it.type, x: it.x, y: it.y, step: n });
     }

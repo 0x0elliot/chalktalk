@@ -268,11 +268,19 @@ material colour (`steel`, `brick`, `wood`, `concrete`, `water`, `foliage`, `gold
 figure turns. It turns slowly until the user drags it (`"spin": false` keeps it still); scrolling zooms.
 Leave labels for the parts the narration names; five at most.
 
-To stand a 3D figure straight on the user's screen, with no whiteboard around it, give the step a
-`"stage": { "parts": [...], "label", "spin", "camera", "x", "y", "w", "h" }` instead of a `figure`
-board item (screen points; it centres itself when `x`/`y` are left out). It appears when that step
-starts and stays for the rest of the lesson; the user can drag it by its handle, turn it, and close it.
-Prefer a stage for a showpiece model, and a `figure` on the board when the model sits beside 2D marks.
+**3D goes on a stage, not on the board.** Give the step `"stage": { "id", "parts": [...], "label",
+"spin", "camera", "x", "y", "w", "h" }` and the model floats on the user's screen, away from the
+whiteboard, with a drag handle, a turn control and a close button (screen points; it centres itself when
+`x`/`y` are left out). The board appears separately and is left for words and 2D marks, which is what
+makes both readable.
+
+A stage with the same `id` in a later step replaces the earlier one, so a model can be built up part by
+part while it floats: step one has the body and wheels, step two adds the engine, step three adds the
+brakes. Keep `x`, `y`, `w`, `h` identical across those steps and it looks like the same object gaining
+parts.
+
+A `figure` item on the board is the exception, for when the 3D model has to be read against 2D marks
+(an arrow into one part, a label pinned beside another). If you use one, say why in the step.
 
 **The board is state.** Everything you draw stays until a step clears it, so decide what lives where
 before the first step and keep a ledger as you write: the spine, the subject, the annotations.

@@ -476,6 +476,13 @@
       stages.push(entry);
     });
     function showStages() {
+      // A stage with the same id in a later step replaces the earlier one, so a model can be
+      // built up part by part while it floats on the screen.
+      const idOf = (s) => String(s.spec.id || "stage");
+      const latest = new Map();
+      stages.forEach((s) => {
+        if (s.index <= current) latest.set(idOf(s), Math.max(latest.get(idOf(s)) ?? -1, s.index));
+      });
       stages.forEach((s) => {
         let since = 0;
         for (let k = current; k > 0; k--) {
@@ -484,7 +491,7 @@
             break;
           }
         }
-        const on = s.index <= current && s.index >= since && !s.closed;
+        const on = s.index <= current && s.index >= since && !s.closed && latest.get(idOf(s)) === s.index;
         s.el.style.display = on ? "" : "none";
         if (on && !s.built) {
           s.built = true;
