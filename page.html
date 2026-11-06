@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chalktalk</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap" rel="stylesheet" />
+    <style>
+      :root { --sketch-ink: #2c2c2a; --paper: #fbfaf6; color-scheme: light dark; }
+      @media (prefers-color-scheme: dark) { :root { --sketch-ink: #f1efe8; --paper: #1f1f1d; } }
+      html, body { margin: 0; background: var(--paper); color: var(--sketch-ink); font: 16px/1.5 system-ui, sans-serif; }
+      #stage { max-width: 1400px; margin: 0 auto; padding: 16px; }
+      #stage:fullscreen { max-width: none; padding: 0 16px 16px; background: var(--paper); overflow: auto; }
+      .sketch-caption { font: 22px 'Patrick Hand', system-ui, sans-serif; }
+      .sketch-bar button { font: inherit; padding: 4px 14px; border-radius: 8px; border: 1px solid #8887; background: transparent; color: inherit; cursor: pointer; }
+      .sketch-bar button:hover { background: #8882; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <script src="engine.js"></script>
+    <script>
+      const scene = {
+        title: "Chalktalk",
+        width: 1200,
+        height: 700,
+        fullscreen: true,
+        steps: [],
+      };
+      Chalktalk.mount(document.getElementById("stage"), scene);
+    </script>
+  </body>
+</html>
