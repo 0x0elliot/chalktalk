@@ -597,6 +597,26 @@
         if (it.label) label(it.label, x, y + 120, { size: 20 });
         break;
       }
+      case "row": {
+        // A row of cards with arrows between them: the most common picture on a whiteboard, and the
+        // one that costs the most coordinates and arrows to write by hand.
+        const items = it.items || [];
+        if (!items.length) break;
+        const gap = it.gap ?? 16;
+        const h = it.h || 58;
+        const bw = (it.w - gap * (items.length - 1)) / items.length;
+        items.forEach((cell, i) => {
+          const x = it.x + i * (bw + gap);
+          const made = build(svg, { type: "box", x, y: it.y, w: bw, h, ...cell }, rand, codes, open);
+          (Array.isArray(made) ? made : [made]).forEach((node) => out.push(node));
+          if (i > 0) {
+            const from = it.x + (i - 1) * (bw + gap) + bw;
+            const arrow = build(svg, { type: "arrow", from: [from, it.y + h / 2], to: [x, it.y + h / 2], color: cell.arrow || it.arrow }, rand, codes, open);
+            (Array.isArray(arrow) ? arrow : [arrow]).forEach((node) => out.push(node));
+          }
+        });
+        break;
+      }
       case "icon": {
         const size = it.size || 48;
         const body = (global.Chalktalk.iconCache || {})[it.name];

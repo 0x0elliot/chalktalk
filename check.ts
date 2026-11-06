@@ -49,7 +49,16 @@ steps.forEach((step, i) => {
   }
   if (!step.say || String(step.say).trim().length < 12) warn(n, "no say script");
 
-  const items = [...(step.board || []), ...(step.board2 || [])];
+  // Rows expand the same way the engine expands them, so their cards are checked too.
+  const raw = [...(step.board || []), ...(step.board2 || [])];
+  const items = raw.flatMap((it: any) => {
+    if (it.type !== "row") return [it];
+    const gap = it.gap ?? 16;
+    const h = it.h || 58;
+    const cells = it.items || [];
+    const bw = (it.w - gap * (cells.length - 1)) / cells.length;
+    return cells.map((cell: any, k: number) => ({ type: "box", x: it.x + k * (bw + gap), y: it.y, w: bw, h, ...cell }));
+  });
   if (items.length + texts.length > 14) warn(n, `${items.length + texts.length} items on a board (12 is plenty)`);
 
   items.forEach((it) => {

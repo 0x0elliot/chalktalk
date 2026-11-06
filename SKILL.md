@@ -12,7 +12,7 @@ whiteboard, and explain it out loud in plain steps.
 `<skill-dir>` below is the folder this file lives in (the base directory shown when the skill loads).
 Use its absolute path in every command, so the skill works from any folder and any session.
 
-Files: `check.ts` lints a lesson in 20 ms, `engine.js` draws (boxes, arrows, logos, thought bubbles,
+Files: `check.ts` lints a lesson in 20 ms, `bench.ts` times the loop, `engine.js` draws (boxes, arrows, logos, thought bubbles,
 code with circled lines). `point.js` is the layer that lets the user circle something on a live page. `listen.ts` runs the local helper and the
 waiter that wakes you. `explain.js` plays your answer back on their page. `narrate.ts` records the
 voice. `bookmarklet.ts` makes the bookmark. `page.html` is a full-page fallback for drawing over an
@@ -200,6 +200,7 @@ On the whiteboard (`board`, and `board2` for a second one with
 | `timeline` | `id, x, y, w, from, to, tick, eras: [{ from, to, label, color }], events: [...]` (a dated axis) |
 | `event` | `timeline, year, label, when, color, side, reach, width` (a dated mark on a timeline; `year` places it, `when` is the text shown, e.g. "1861 to 65"; one per step builds it up) |
 | `bars` | `x, y, w, h, bars: [{ label, value, color }], max, unit, color` (a hand-drawn bar chart) |
+| `row` | `x, y, w, h, gap, items: [{ label, color, sub }]` (a chain of cards with arrows; the cheapest way to draw one) |
 | `icon` | `name, x, y, size, label, color, weight` (one of 2,100 Lucide outline icons, drawn stroke by stroke) |
 | `sketch` | `x, y, w, box, paths, fills, label, color, use` (your own drawing in pen strokes; below) |
 | `map` | `id, x, y, w, h, region, focus, bbox, states, highlight, pins, routes` (a real map; below) |
@@ -334,11 +335,23 @@ the new question is the one you answered last week, `replay <slug>` puts it back
 second, with no writing and no recording. When it is close but not the same, copy that folder and change
 what differs.
 
+**Write less JSON, not faster JSON.** Most of the wait is the model writing the lesson, so the cheapest
+speed-up is a smaller lesson for the same picture. `row` is the big one: four cards and their three
+arrows are 485 characters by hand and 191 as a row, with no coordinates to get wrong. Measured on eight
+lessons, the JSON is 4k to 13k characters (1k to 3.3k tokens); a lesson at the top of that range takes
+three times as long to write as one at the bottom. Cut parts, not steps.
+
 **Check it in milliseconds.** `bun <skill-dir>/check.ts <dir>` reads the lesson and prints what will look
 wrong: an item off the board, a step re-drawing on a spot an earlier step used, two labels on top of
 each other, timeline marks stacked on one side, a cue that isn't in that step's script, a timeline with
 no room for its labels. It takes about 20 ms, so run it instead of rendering. Draw a picture only when
 the layout is unusual (a map, a 3D figure, a photo), and then once.
+
+**Spend the voice deliberately.** ElevenLabs characters are a budget the user pays for. Ask what a
+recording would cost before making it — `narrate.ts <dir> --estimate` prints the characters, free. A
+board edit never needs a new recording (the cache is keyed to the words), and no test, benchmark or
+"does it still work" should ever re-record a lesson that already has audio. When you do need to test the
+voice path, write one ten-word step, not a whole lesson.
 
 **Narrate last, and only once.** `narrate.ts` keys the recording to the words themselves: run it again
 after a board edit and it reuses the audio in 30 ms. Only changing `say` pays for a new recording, so

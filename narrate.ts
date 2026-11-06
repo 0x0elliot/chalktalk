@@ -48,6 +48,14 @@ const lesson = (await lessonFile.json()) as Lesson;
 const steps = lesson.steps ?? [];
 const says = steps.map((step) => (step.say ?? "").trim());
 
+// What would this recording cost? Free to ask; costs nothing until you spend it.
+if (flags.includes("--estimate")) {
+  const total = says.reduce((n, s) => n + s.length, 0);
+  const missing = steps.reduce((n, step, i) => n + (step.audio ? 0 : (says[i]?.length ?? 0)), 0);
+  process.stdout.write(`${total} characters in the script, ${missing} still to record\n`);
+  process.exit(0);
+}
+
 
 function elevenKey(): string {
   const read = (command: string[]) => {
