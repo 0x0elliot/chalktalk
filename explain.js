@@ -416,9 +416,13 @@
     top.append(light, line, extra);
     controls.append(back, pause, next, replay, clear, sound);
     bottom.append(controls, ask);
-    const stages = [];
-    steps.forEach((s, index) => {
+    // One stage element per id, created where it first appears and never recreated, so dragging a
+    // model somewhere keeps it there for the rest of the lesson; only its parts are rebuilt.
+    const stages = new Map();
+    steps.forEach((s) => {
       if (!s.stage || !Array.isArray(s.stage.parts)) return;
+      const id = String(s.stage.id || "stage");
+      if (stages.has(id)) return;
       const w = Math.min(s.stage.w || 520, innerWidth - 32);
       const h = Math.min(s.stage.h || 380, innerHeight - 32 - safe.top - safe.bottom);
       const x = Number.isFinite(s.stage.x) ? s.stage.x : (innerWidth - w) / 2;
@@ -440,18 +444,16 @@
       shut.style.cssText = "width:24px;height:24px;border-radius:50%;border:0;background:#2c2c2acc;color:#fff;font:11px system-ui,sans-serif;cursor:pointer";
       tools.append(grab, shut);
       el.append(host, tools);
-      if (s.stage.label) {
-        const tag = document.createElement("div");
-        tag.textContent = s.stage.label;
-        tag.style.cssText = "position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);font:18px 'Patrick Hand',system-ui,sans-serif;color:#30333A;padding:2px 12px;border-radius:999px;background:rgba(251,250,246,.85);white-space:nowrap;pointer-events:none";
-        el.append(tag);
-      }
+      const tag = document.createElement("div");
+      tag.style.cssText = "position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);font:18px 'Patrick Hand',system-ui,sans-serif;color:#30333A;padding:2px 12px;border-radius:999px;background:rgba(251,250,246,.85);white-space:nowrap;pointer-events:none";
+      tag.style.display = "none";
+      el.append(tag);
       el.addEventListener("pointerenter", () => (tools.style.opacity = "1"));
       el.addEventListener("pointerleave", () => (tools.style.opacity = "0"));
-      const entry = { index, el, closed: false, built: false, host, spec: s.stage };
+      const rec = { el, host, tag, built: -1, closed: false };
       shut.addEventListener("click", (e) => {
         e.stopPropagation();
-        entry.closed = true;
+        rec.closed = true;
         el.style.display = "none";
       });
       grab.addEventListener("pointerdown", (e) => {
@@ -473,34 +475,38 @@
         grab.addEventListener("pointerup", up);
       });
       root.append(el);
-      stages.push(entry);
+      stages.set(id, rec);
     });
+
     function showStages() {
-      // A stage with the same id in a later step replaces the earlier one, so a model can be
-      // built up part by part while it floats on the screen.
-      const idOf = (s) => String(s.spec.id || "stage");
-      const latest = new Map();
-      stages.forEach((s) => {
-        if (s.index <= current) latest.set(idOf(s), Math.max(latest.get(idOf(s)) ?? -1, s.index));
-      });
-      stages.forEach((s) => {
-        let since = 0;
-        for (let k = current; k > 0; k--) {
-          if (steps[k].clear) {
-            since = k;
-            break;
-          }
+      let since = 0;
+      for (let k = current; k > 0; k--) {
+        if (steps[k].clear) {
+          since = k;
+          break;
         }
-        const on = s.index <= current && s.index >= since && !s.closed && latest.get(idOf(s)) === s.index;
-        s.el.style.display = on ? "" : "none";
-        if (on && !s.built) {
-          s.built = true;
-          window.Chalktalk.figure(s.host, s.spec, window.CHALKTALK_THREE);
+      }
+      stages.forEach((rec, id) => {
+        let latest = -1;
+        for (let i = 0; i <= current; i++) {
+          const st = steps[i].stage;
+          if (st && String(st.id || "stage") === id) latest = i;
+        }
+        const on = latest >= 0 && latest >= since && !rec.closed;
+        if (on && rec.built !== latest) {
+          const spec = steps[latest].stage;
+          rec.host.replaceChildren();
+          window.Chalktalk.figure(rec.host, spec, window.CHALKTALK_THREE);
+          rec.tag.textContent = spec.label || "";
+          rec.tag.style.display = spec.label ? "" : "none";
+          rec.built = latest;
           if (window.Chalktalk.sound) window.Chalktalk.sound.thump(0.1);
         }
-        requestAnimationFrame(() => (s.el.style.opacity = on ? "1" : "0"));
+        rec.el.style.display = on ? "" : "none";
+        requestAnimationFrame(() => (rec.el.style.opacity = on ? "1" : "0"));
       });
     }
+
     function inkSounds() {
       if (!window.Chalktalk.sound) return;
       marks.querySelectorAll("path").forEach((p) => {

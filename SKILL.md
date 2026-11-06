@@ -276,8 +276,8 @@ makes both readable.
 
 A stage with the same `id` in a later step replaces the earlier one, so a model can be built up part by
 part while it floats: step one has the body and wheels, step two adds the engine, step three adds the
-brakes. Keep `x`, `y`, `w`, `h` identical across those steps and it looks like the same object gaining
-parts.
+brakes. It is one element for the whole lesson, so if the user drags it somewhere, it stays there while
+the parts change underneath. Give every stage a stable `id` when it is the same object.
 
 A `figure` item on the board is the exception, for when the 3D model has to be read against 2D marks
 (an arrow into one part, a label pinned beside another). If you use one, say why in the step.

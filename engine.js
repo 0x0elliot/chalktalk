@@ -206,7 +206,7 @@
     if (global.ResizeObserver) new ResizeObserver(fit).observe(host);
     const v = new T.Vector3();
     renderer.setAnimationLoop(() => {
-      if (!host.isConnected) {
+      if (!canvas.isConnected) {
         renderer.setAnimationLoop(null);
         renderer.dispose();
         return;
