@@ -40,8 +40,9 @@ image. Read the ones you need before the first lesson of a session.
   --as "<model>"` again with `run_in_background: true` right away, so the page shows you as listening
   rather than gone. Keep the flag on every later command too (`plan`, `step`, `reply`, `lesson`), or the
   page forgets whose name to show.
-- Shipping a lesson: `bun <skill-dir>/listen.ts send <dir> --as "<model>"` (check, narrate, post, and
-  listen again, in one call).
+- Shipping a lesson: `bun <skill-dir>/listen.ts send <dir> --as "<model>"` (check, narrate, post, save,
+  and listen again, in one call). Every shipped lesson is kept; `listen.ts saved` lists them and
+  `listen.ts replay <slug>` plays one again in a second.
 - `/chalktalk block <origin>` / `/chalktalk unblock <origin>`: run `bun <skill-dir>/listen.ts block|unblock
   <origin>` for a site the user named, and say what changed.
 - `/chalktalk stop`: run `listen.ts leave`, and only if no other session is listening, also
@@ -295,6 +296,11 @@ before the first step and keep a ledger as you write: the spine, the subject, th
   timeline, a chain). The subject holds the thing being discussed right now. Annotations hold the
   labels and arrows that matter for a step or two. When a fact stops mattering, it stops being drawn; a
   board is not a transcript.
+
+**Reuse before you rebuild.** `bun <skill-dir>/listen.ts saved` lists every lesson already shipped. If
+the new question is the one you answered last week, `replay <slug>` puts it back on screen in about a
+second, with no writing and no recording. When it is close but not the same, copy that folder and change
+what differs.
 
 **Check it in milliseconds.** `bun <skill-dir>/check.ts <dir>` reads the lesson and prints what will look
 wrong: an item off the board, a step re-drawing on a spot an earlier step used, two labels on top of

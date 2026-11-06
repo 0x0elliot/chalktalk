@@ -474,6 +474,40 @@ async function nextNote(seconds: number): Promise<string | null> {
 }
 
 // A one-shot waiter, for scripts that want to block until a note arrives.
+// Keep every shipped lesson, so a repeat question is a replay instead of a rebuild.
+async function saveLesson(dir: string): Promise<string> {
+  const lesson = (await Bun.file(`${dir}/lesson.json`).json().catch(() => ({}))) as { title?: string };
+  const slug = String(lesson.title || "lesson")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60) || `lesson-${Date.now()}`;
+  const target = `${HOME}/saved/${slug}`;
+  await mkdir(target, { recursive: true });
+  await Bun.write(`${target}/lesson.json`, Bun.file(`${dir}/lesson.json`));
+  for (const file of ["lesson.mp3", "lesson.wav"]) {
+    if (await Bun.file(`${dir}/${file}`).exists()) await Bun.write(`${target}/${file}`, Bun.file(`${dir}/${file}`));
+  }
+  const indexFile = Bun.file(`${HOME}/saved/index.json`);
+  const index = (await indexFile.exists()) ? ((await indexFile.json().catch(() => [])) as Array<{ slug: string; title: string; at: number }>) : [];
+  const kept = index.filter((entry) => entry.slug !== slug);
+  kept.unshift({ slug, title: String(lesson.title || slug), at: Date.now() });
+  await Bun.write(`${HOME}/saved/index.json`, JSON.stringify(kept.slice(0, 200), null, 2));
+  return slug;
+}
+
+async function replay(slug: string): Promise<void> {
+  const dir = `${HOME}/saved/${slug.replace(/[^a-z0-9-]/g, "")}`;
+  if (!(await Bun.file(`${dir}/lesson.json`).exists())) fail(`no saved lesson called ${slug}; bun listen.ts saved lists them`);
+  await call("/internal/lesson", { dir });
+  const bg = Bun.spawn(["bun", fileURLToPath(new URL("./listen.ts", import.meta.url)), "start", "--name", sessionName, ...(agentName ? ["--as", agentName] : [])], {
+    stdio: ["ignore", "ignore", "ignore"],
+    detached: true,
+  });
+  bg.unref();
+  out(JSON.stringify({ replayed: slug, listening: true }));
+}
+
 // check, narrate and post in one call, then put the waiter back: the whole tail of a lesson
 // is one command, so the user is not waiting on three separate round trips.
 async function send(dir: string): Promise<void> {
@@ -489,12 +523,13 @@ async function send(dir: string): Promise<void> {
     return;
   }
   await call("/internal/lesson", { dir: resolvePath(dir) });
+  const slug = await saveLesson(dir);
   const bg = Bun.spawn(["bun", script("listen.ts"), "start", "--name", sessionName, ...(agentName ? ["--as", agentName] : [])], {
     stdio: ["ignore", "ignore", "ignore"],
     detached: true,
   });
   bg.unref();
-  out(JSON.stringify({ sent: resolvePath(dir), listening: true }));
+  out(JSON.stringify({ sent: resolvePath(dir), saved: slug, listening: true }));
 }
 
 async function wait(): Promise<void> {
@@ -545,6 +580,12 @@ const words = positional();
 if (command === "serve") await serve();
 else if (command === "start") await start();
 else if (command === "send") await send(words[0]);
+else if (command === "replay") await replay(words[0] ?? "");
+else if (command === "saved") {
+  const file = Bun.file(`${HOME}/saved/index.json`);
+  const list = (await file.exists()) ? await file.json().catch(() => []) : [];
+  out(list.length ? (list as Array<{ slug: string; title: string }>).map((e) => `${e.slug}  ${e.title}`).join("\n") : "nothing saved yet");
+}
 else if (command === "wait") await wait();
 else if (command === "lesson") {
   if (!words[0]) fail("usage: bun listen.ts lesson <dir>");
@@ -572,4 +613,4 @@ else if (command === "icons") {
   const files = await readdir(`${HOME}/library`).catch(() => [] as string[]);
   out(files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).join("  ") || "the sketch library is empty");
 }
-else fail("usage: bun listen.ts start | send <dir> | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");
+else fail("usage: bun listen.ts start | send <dir> | replay <slug> | saved | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");
