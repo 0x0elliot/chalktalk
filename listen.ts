@@ -474,6 +474,29 @@ async function nextNote(seconds: number): Promise<string | null> {
 }
 
 // A one-shot waiter, for scripts that want to block until a note arrives.
+// check, narrate and post in one call, then put the waiter back: the whole tail of a lesson
+// is one command, so the user is not waiting on three separate round trips.
+async function send(dir: string): Promise<void> {
+  if (!dir) fail("usage: bun listen.ts send <lesson-dir> [--dry]");
+  const dry = rest.includes("--dry");
+  const script = (name: string) => fileURLToPath(new URL(`./${name}`, import.meta.url));
+  const check = Bun.spawn(["bun", script("check.ts"), dir], { stdout: "inherit", stderr: "inherit" });
+  await check.exited;
+  const narrate = Bun.spawn(["bun", script("narrate.ts"), dir], { stdout: "inherit", stderr: "inherit" });
+  if ((await narrate.exited) !== 0) fail("narration failed, so nothing was sent");
+  if (dry) {
+    out("dry run: checked and narrated, nothing sent");
+    return;
+  }
+  await call("/internal/lesson", { dir: resolvePath(dir) });
+  const bg = Bun.spawn(["bun", script("listen.ts"), "start", "--name", sessionName, ...(agentName ? ["--as", agentName] : [])], {
+    stdio: ["ignore", "ignore", "ignore"],
+    detached: true,
+  });
+  bg.unref();
+  out(JSON.stringify({ sent: resolvePath(dir), listening: true }));
+}
+
 async function wait(): Promise<void> {
   const line = await nextNote(Number(flag("minutes", "30")) * 60);
   if (line) out(line);
@@ -521,6 +544,7 @@ async function setBlocked(block: boolean): Promise<void> {
 const words = positional();
 if (command === "serve") await serve();
 else if (command === "start") await start();
+else if (command === "send") await send(words[0]);
 else if (command === "wait") await wait();
 else if (command === "lesson") {
   if (!words[0]) fail("usage: bun listen.ts lesson <dir>");
@@ -548,4 +572,4 @@ else if (command === "icons") {
   const files = await readdir(`${HOME}/library`).catch(() => [] as string[]);
   out(files.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).join("  ") || "the sketch library is empty");
 }
-else fail("usage: bun listen.ts start | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");
+else fail("usage: bun listen.ts start | send <dir> | serve | wait | lesson <dir> | plan … | step <n> | progress … | idle | leave | block <origin> | unblock <origin> | status   (add --name <session> and --as \"<model name>\" to name this session)");

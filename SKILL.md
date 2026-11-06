@@ -40,6 +40,8 @@ image. Read the ones you need before the first lesson of a session.
   --as "<model>"` again with `run_in_background: true` right away, so the page shows you as listening
   rather than gone. Keep the flag on every later command too (`plan`, `step`, `reply`, `lesson`), or the
   page forgets whose name to show.
+- Shipping a lesson: `bun <skill-dir>/listen.ts send <dir> --as "<model>"` (check, narrate, post, and
+  listen again, in one call).
 - `/chalktalk block <origin>` / `/chalktalk unblock <origin>`: run `bun <skill-dir>/listen.ts block|unblock
   <origin>` for a site the user named, and say what changed.
 - `/chalktalk stop`: run `listen.ts leave`, and only if no other session is listening, also
@@ -161,9 +163,9 @@ Write `<dir>/lesson.json` in your scratchpad:
 }
 ```
 
-Then `bun <skill-dir>/check.ts <dir>` (cheap, 20 ms), `bun <skill-dir>/narrate.ts <dir>` records the
-voice and times every cue, and `bun <skill-dir>/listen.ts lesson <dir>` hands it to the page, which
-plays it within two seconds.
+Then one command ships it: `bun <skill-dir>/listen.ts send <dir> --as "<model>"`. It runs the checker,
+narrates when the words changed (and reuses the recording when they didn't), posts the lesson to the
+page, and puts the waiter back. The page plays it within two seconds. `--dry` stops before posting.
 
 On the page:
 
@@ -306,8 +308,8 @@ move board items as often as you like and save the recording for the version you
 
 **Batch the commands.** A reply, a plan and a step are three calls to one helper, so put them in one
 shell line. Posting the lesson and starting the waiter do not depend on each other either: run them in
-the same block. A note should cost about five calls in total: answer, write the lesson, check, narrate,
-send. Every extra round trip is a sentence of silence for the user.
+the same block. A note should cost three calls in total: answer + plan, write the lesson, `send`.
+Every extra round trip is another long silence for the user.
 
 Drawing makes sound: a pen scratch as each stroke draws, a soft thump as a card lands, an eraser
 sweep when a board clears. The user mutes
