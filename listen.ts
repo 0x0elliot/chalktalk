@@ -573,7 +573,21 @@ async function send(dir: string): Promise<void> {
     ["bun", script("narrate.ts"), dir, ...(stream ? ["--per-step"] : [])],
     { stdout: "inherit", stderr: "inherit" },
   );
-  if ((await narrate.exited) !== 0) fail("narration failed, so nothing was sent");
+  if ((await narrate.exited) !== 0) {
+    // No voice is not a reason to leave the user with nothing: drop the clip mode and let the page
+    // read it with the system voice.
+    const file = `${dir}/lesson.json`;
+    const lesson = (await Bun.file(file).json().catch(() => null)) as Record<string, unknown> | null;
+    if (lesson) {
+      delete lesson.stream;
+      for (const step of (lesson.steps as Array<Record<string, unknown>>) ?? []) {
+        delete step.audio;
+        delete step.seconds;
+      }
+      await Bun.write(file, JSON.stringify(lesson, null, 2));
+    }
+    out("note: no voice available, so it will play with the system voice");
+  }
   if (dry) {
     out("dry run: checked and narrated, nothing sent");
     return;

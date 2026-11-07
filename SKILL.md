@@ -378,6 +378,10 @@ each other, timeline marks stacked on one side, a cue that isn't in that step's 
 no room for its labels. It takes about 20 ms, so run it instead of rendering. Draw a picture only when
 the layout is unusual (a map, a 3D figure, a photo), and then once.
 
+**A missing voice is not a missing answer.** If narration fails (no key, an expired token, no network),
+still post the lesson: the page falls back to the system voice. `send` does this on its own now, so never
+abandon a lesson because the recording failed — tell the user which voice they are hearing instead.
+
 **Spend the voice deliberately.** ElevenLabs characters are a budget the user pays for. Ask what a
 recording would cost before making it — `narrate.ts <dir> --estimate` prints the characters, free. A
 board edit never needs a new recording (the cache is keyed to the words), and no test, benchmark or
