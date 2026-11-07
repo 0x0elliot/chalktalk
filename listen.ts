@@ -85,6 +85,7 @@ type Session = {
   lessonTab: string;
   lastOrigin: string;
   noteAt: number;
+  ackAt: number;
   postedAt: number;
   startedAt: number;
 };
@@ -144,7 +145,7 @@ async function serve(): Promise<void> {
   const session = (name: string): Session => {
     let s = sessions.get(name);
     if (!s) {
-      s = { name, agent: "", waiter: null, lastSeen: 0, queue: [], thinkingSince: 0, doing: "", plan: [], step: 0, lessonDir: null, lessonSent: true, offered: new Set(), reply: "", lastPath: "", lastTab: "", lessonTab: "", lastOrigin: "", noteAt: 0, postedAt: 0, startedAt: 0 };
+      s = { name, agent: "", waiter: null, lastSeen: 0, queue: [], thinkingSince: 0, doing: "", plan: [], step: 0, lessonDir: null, lessonSent: true, offered: new Set(), reply: "", lastPath: "", lastTab: "", lessonTab: "", lastOrigin: "", noteAt: 0, ackAt: 0, postedAt: 0, startedAt: 0 };
       sessions.set(name, s);
     }
     return s;
@@ -257,6 +258,10 @@ async function serve(): Promise<void> {
       recent.splice(RECENT_LIMIT);
       return json({ ok: true, session: s.name });
     }
+    if (pathname === "/internal/ack") {
+      s.ackAt = Date.now();
+      return json({ ok: true });
+    }
     if (pathname === "/internal/stats") return json(timings);
     if (pathname === "/internal/plan") {
       s.plan = (Array.isArray(body.steps) ? body.steps : []).map((x) => String(x).slice(0, 80)).slice(0, 8);
@@ -350,7 +355,7 @@ async function serve(): Promise<void> {
           const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
           if (s) {
             s.startedAt = Date.now();
-            timings.unshift({ note: s.noteAt, posted: s.postedAt, started: s.startedAt });
+            timings.unshift({ note: s.noteAt, ack: s.ackAt, posted: s.postedAt, started: s.startedAt });
             timings.splice(12);
           }
           return json({ ok: true }, 200, headers);
@@ -707,15 +712,17 @@ else if (command === "start") await start();
 else if (command === "send") await send(words[0]);
 else if (command === "ship") await ship(words[0]);
 else if (command === "append") await append(words[0]);
+else if (command === "ack") await call("/internal/ack", {});
 else if (command === "stats") {
   const res = await internal("/internal/stats");
-  const rows = res && res.ok ? ((await res.json()) as Array<{ note: number; posted: number; started: number }>) : [];
+  const rows = res && res.ok ? ((await res.json()) as Array<{ note: number; ack: number; posted: number; started: number }>) : [];
   if (!rows.length) out("no timed notes yet");
   rows.forEach((r) => {
-    const write = r.posted && r.note ? (r.posted - r.note) / 1000 : null;
+    const wake = r.ack && r.note ? (r.ack - r.note) / 1000 : null;
+    const write = r.posted && r.note ? (r.posted - r.ack) / 1000 : null;
     const record = r.started && r.posted ? (r.started - r.posted) / 1000 : null;
     const total = r.started && r.note ? (r.started - r.note) / 1000 : null;
-    out(`write ${write === null ? "?" : `${write.toFixed(1)}s`} · record+post ${record === null ? "?" : `${record.toFixed(1)}s`} · to first drawing ${total === null ? "?" : `${total.toFixed(1)}s`}`);
+    out(`wake ${wake === null ? "?" : `${wake.toFixed(1)}s`} · write ${write === null ? "?" : `${write.toFixed(1)}s`} · record+post ${record === null ? "?" : `${record.toFixed(1)}s`} · to first drawing ${total === null ? "?" : `${total.toFixed(1)}s`}`);
   });
 }
 else if (command === "replay") await replay(words[0] ?? "");

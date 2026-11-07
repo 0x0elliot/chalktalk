@@ -40,7 +40,8 @@ image. Read the ones you need before the first lesson of a session.
   --as "<model>"` again with `run_in_background: true` right away, so the page shows you as listening
   rather than gone. Keep the flag on every later command too (`plan`, `step`, `reply`, `lesson`), or the
   page forgets whose name to show.
-- Measuring: `listen.ts stats` prints the last few notes as write / record+post / to first drawing.
+- Measuring: `listen.ts ack` is the first thing you run on a note, so the wait can be split into
+  wake / write / record+post. `listen.ts stats` prints those for the last few notes.
   If the first number dominates, write less; if the second does, fix the voice or the handoff.
 - Shipping a lesson: `bun <skill-dir>/listen.ts send <dir> --as "<model>"` (check, narrate, post, save,
   and listen again, in one call). Every shipped lesson is kept; `listen.ts saved` lists them and
