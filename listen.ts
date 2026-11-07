@@ -84,6 +84,9 @@ type Session = {
   lastTab: string;
   lessonTab: string;
   lastOrigin: string;
+  noteAt: number;
+  postedAt: number;
+  startedAt: number;
 };
 
 const bundles = new Map<string, Promise<string | null>>();
@@ -131,6 +134,7 @@ async function serve(): Promise<void> {
   const sessions = new Map<string, Session>();
   const unaddressed: string[] = [];
   const recent: Array<{ id: string; dir: string; title: string; path: string; origin: string }> = [];
+  const timings: Array<{ note: number; posted: number; started: number }> = [];
   let recentSeq = 0;
   let blocked = await readList(BLOCKED_FILE);
   const seen = new Set(await readList(SEEN_FILE));
@@ -140,7 +144,7 @@ async function serve(): Promise<void> {
   const session = (name: string): Session => {
     let s = sessions.get(name);
     if (!s) {
-      s = { name, agent: "", waiter: null, lastSeen: 0, queue: [], thinkingSince: 0, doing: "", plan: [], step: 0, lessonDir: null, lessonSent: true, offered: new Set(), reply: "", lastPath: "", lastTab: "", lessonTab: "", lastOrigin: "" };
+      s = { name, agent: "", waiter: null, lastSeen: 0, queue: [], thinkingSince: 0, doing: "", plan: [], step: 0, lessonDir: null, lessonSent: true, offered: new Set(), reply: "", lastPath: "", lastTab: "", lessonTab: "", lastOrigin: "", noteAt: 0, postedAt: 0, startedAt: 0 };
       sessions.set(name, s);
     }
     return s;
@@ -247,12 +251,13 @@ async function serve(): Promise<void> {
       s.offered.clear();
       for (const f of lesson.followups ?? []) s.offered.add(f.prompt ?? f.label ?? "");
       for (const step of lesson.steps ?? []) for (const option of step.ask?.options ?? []) s.offered.add(option);
-      Object.assign(s, { lessonDir: dir, lessonSent: false, lessonTab: s.lastTab, thinkingSince: 0, doing: "", plan: [], step: 0, reply: "" });
+      Object.assign(s, { lessonDir: dir, lessonSent: false, lessonTab: s.lastTab, thinkingSince: 0, doing: "", plan: [], step: 0, reply: "", postedAt: Date.now() });
       const first = (lesson as { title?: string; steps?: Array<{ caption?: string }> });
       recent.unshift({ id: String(++recentSeq), dir, title: first.title || first.steps?.[0]?.caption || "Explanation", path: s.lastPath, origin: s.lastOrigin });
       recent.splice(RECENT_LIMIT);
       return json({ ok: true, session: s.name });
     }
+    if (pathname === "/internal/stats") return json(timings);
     if (pathname === "/internal/plan") {
       s.plan = (Array.isArray(body.steps) ? body.steps : []).map((x) => String(x).slice(0, 80)).slice(0, 8);
       s.step = s.plan.length ? 1 : 0;
@@ -339,6 +344,17 @@ async function serve(): Promise<void> {
         }
         const tab = url.searchParams.get("tab");
         if (req.method === "GET" && pathname === "/status") return json(report(asked, tab), 200, headers);
+        // The page says when the first step actually started drawing; that is the only number that
+        // matters to a person waiting.
+        if (req.method === "POST" && pathname === "/lesson/started") {
+          const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
+          if (s) {
+            s.startedAt = Date.now();
+            timings.unshift({ note: s.noteAt, posted: s.postedAt, started: s.startedAt });
+            timings.splice(12);
+          }
+          return json({ ok: true }, 200, headers);
+        }
         if (req.method === "GET" && pathname === "/recent") {
           const path = (url.searchParams.get("path") || "").replace(/\/+$/, "");
           const from = req.headers.get("origin") || "";
@@ -407,6 +423,7 @@ async function serve(): Promise<void> {
             if (note.kind === "followup" || note.kind === "answer") note.verified = Boolean(target && target.offered.has(note.note ?? ""));
             const { url: page, tab: fromTab } = note as { url?: string; tab?: string };
             if (target && fromTab) target.lastTab = String(fromTab).slice(0, 40);
+            if (target) target.noteAt = Date.now();
             if (target) target.lastOrigin = from;
             if (target && page) {
               try {
@@ -690,6 +707,17 @@ else if (command === "start") await start();
 else if (command === "send") await send(words[0]);
 else if (command === "ship") await ship(words[0]);
 else if (command === "append") await append(words[0]);
+else if (command === "stats") {
+  const res = await internal("/internal/stats");
+  const rows = res && res.ok ? ((await res.json()) as Array<{ note: number; posted: number; started: number }>) : [];
+  if (!rows.length) out("no timed notes yet");
+  rows.forEach((r) => {
+    const write = r.posted && r.note ? (r.posted - r.note) / 1000 : null;
+    const record = r.started && r.posted ? (r.started - r.posted) / 1000 : null;
+    const total = r.started && r.note ? (r.started - r.note) / 1000 : null;
+    out(`write ${write === null ? "?" : `${write.toFixed(1)}s`} · record+post ${record === null ? "?" : `${record.toFixed(1)}s`} · to first drawing ${total === null ? "?" : `${total.toFixed(1)}s`}`);
+  });
+}
 else if (command === "replay") await replay(words[0] ?? "");
 else if (command === "watch") await watch(words[0] ?? "");
 else if (command === "saved") {

@@ -880,6 +880,7 @@
     const streaming = Boolean(lesson.stream);
     const timeline = !streaming && lesson.audio && Array.isArray(lesson.timeline) && lesson.timeline.length === n ? lesson.timeline : null;
     let track = null;
+    let reportedStart = false;
     let follow = 0;
     let waitTimer = 0;
     const trackReady = timeline
@@ -957,6 +958,10 @@
       drawMarks(true);
       inkSounds();
       showStages();
+      if (!reportedStart) {
+        reportedStart = true;
+        fetch(`${BASE}/lesson/started${q}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: "{}" }).catch(() => {});
+      }
       const drawBoard = (seconds) => {
         engines.forEach(({ key, engine }, k) => {
           if (step[key] && step[key].length) {
