@@ -37,6 +37,7 @@ const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && 
 const fmt = (n) => Math.round(n);
 
 const texts = [];
+const events = new Map<string, Array<{ x: number; w: number; side: string; label: string; step: number }>>();
 const spots = [];
 let sawClear = false;
 
@@ -91,15 +92,27 @@ steps.forEach((step, i) => {
       texts.push({ ...box, step: n });
     }
 
-    // Events on one timeline sit on top of each other.
+    // A timeline is read left to right, so nothing on it may overlap anything else.
     if (it.type === "event") {
-      const line = steps.flatMap((s) => s.board || []).find((x) => x.type === "timeline" && (x.id || "timeline") === (it.timeline || "timeline"));
+      const id = it.timeline || "timeline";
+      const line = steps.flatMap((s) => s.board || []).find((x) => x.type === "timeline" && (x.id || "timeline") === id);
       if (line) {
-        const x = line.x + ((Number(it.year) - line.from) / (line.to - line.from)) * line.w;
+        const span = Number(line.to) - Number(line.from) || 1;
+        const x = line.x + ((Number(it.year) - Number(line.from)) / span) * line.w;
         const side = it.side || "above";
-        const before = spots.find((s) => s.type === "event" && s.side === side && Math.abs(s.x - x) < 12);
-        if (before) warn(n, `event "${it.label}" sits within 12 px of "${before.label}" on the same side`);
-        spots.push({ type: "event", x, y: 0, step: n, side });
+        const labelW = Math.min(String(it.label ?? "").length * 9.5, it.width || 150);
+        const whenW = String(it.when ?? it.year ?? "").length * 6.5;
+        const footprint = Math.max(labelW, whenW);
+        const before = (events.get(id) ?? []).filter((e) => e.side === side);
+        before.forEach((e) => {
+          if (Math.abs(e.x - x) < (e.w + footprint) / 2 + 8)
+            warn(n, `timeline "${id}": "${it.label}" overlaps "${e.label}" from step ${e.step} — merge the two years, split the sides, or drop the earlier mark`);
+        });
+        if (x - footprint / 2 < 4 || x + footprint / 2 > W - 4)
+          warn(n, `timeline "${id}": "${it.label}" runs off the ${W}-wide board`);
+        const list = events.get(id) ?? [];
+        list.push({ x, w: footprint, side, label: String(it.label ?? ""), step: n });
+        events.set(id, list);
       }
     }
 

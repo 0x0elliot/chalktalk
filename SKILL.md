@@ -494,6 +494,11 @@ lesson about the real world usually needs both:
 - If the narration has dates, eras, "by 1900", "after the war", "then", "next", it goes on a `timeline`,
   with one `event` added in the step that says it. If a year is spoken and no mark appears on that year,
   the board is lying about what the lesson is.
+- **A timeline has to be readable without moving your eyes twice.** No mark may touch another: leave at
+  least a label's width between two marks on the same side. When two dates are close, merge them into one
+  event with both years in `when` ("feb and oct 1917"), put one above and one below, or drop the earlier
+  mark if it is only colour. If it still does not fit, the timeline is the wrong shape: widen the board,
+  narrow the span, or give it its own board. A timeline where two labels touch is worse than no timeline.
 - If the narration has a country, region, border, route, migration, war or election, it goes on a `map`
   with `focus` or `bbox` on that place, and `highlight`, `pin` and `route` added per step. Say where
   before what: draw the place, then the event on it. Never explain a place with boxes.
