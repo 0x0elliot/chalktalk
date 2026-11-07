@@ -181,9 +181,12 @@ makes the lesson good — then ship it while the pictures are still being drawn:
    page picks them up between steps, and only the boards are rebuilt — the model on screen never moves.
 4. No `done` flag is needed: a lesson whose steps all have clips and has stopped changing is finished.
 
-**Two turns beat one when the lesson is long.** Writing the whole lesson before shipping it is what makes
-a note feel slow: the reader waits for every step to be written. So for three steps or more, send step
-one first, then append the rest while it plays:
+**One turn is the goal.** Measured on a real note: a single turn costs about 35 seconds whatever it
+writes, and the recording and posting after it cost 0.3 seconds. So the model turn *is* the wait, and
+splitting a lesson into two turns doubles the total to save a few seconds of first paint. Ship once.
+
+The exception is a genuinely long lesson, five steps or more: there the first turn writes enough that
+splitting it does pay, because the reader starts watching instead of waiting.
 
 ```sh
 # turn one: the answer and the first step only
