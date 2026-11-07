@@ -549,6 +549,21 @@ async function watch(dir: string): Promise<void> {
   }
 }
 
+// Add steps to a lesson that is already playing. The existing steps (and their clips) are kept, so
+// shipping step one first costs nothing later.
+async function append(dir: string): Promise<void> {
+  if (!dir) fail("usage: bun listen.ts append <lesson-dir> < steps.json");
+  const file = `${resolvePath(dir)}/lesson.json`;
+  const lesson = (await Bun.file(file).json().catch(() => null)) as { steps?: unknown[] } | null;
+  if (!lesson) fail(`no lesson.json in ${dir}`);
+  const text = await Bun.stdin.text();
+  const more = JSON.parse(text) as unknown[];
+  if (!Array.isArray(more)) fail("append reads a JSON array of steps on stdin");
+  lesson.steps = [...(lesson.steps ?? []), ...more];
+  await Bun.write(file, JSON.stringify(lesson, null, 2));
+  out(`appended ${more.length} step${more.length === 1 ? "" : "s"}`);
+}
+
 // Answer, write and ship in one shell line: the lesson arrives on stdin, so a note costs one round
 // trip instead of three. `bun listen.ts ship <dir> --as "<model>" <<'JSON' … JSON`
 async function ship(dir: string): Promise<void> {
@@ -674,6 +689,7 @@ if (command === "serve") await serve();
 else if (command === "start") await start();
 else if (command === "send") await send(words[0]);
 else if (command === "ship") await ship(words[0]);
+else if (command === "append") await append(words[0]);
 else if (command === "replay") await replay(words[0] ?? "");
 else if (command === "watch") await watch(words[0] ?? "");
 else if (command === "saved") {

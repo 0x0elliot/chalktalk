@@ -179,8 +179,28 @@ makes the lesson good — then ship it while the pictures are still being drawn:
    page picks them up between steps, and only the boards are rebuilt — the model on screen never moves.
 4. No `done` flag is needed: a lesson whose steps all have clips and has stopped changing is finished.
 
-**One call, not three.** The answer, the plan, the file and the ship can be a single shell line, which
-removes two turns of overhead from every note:
+**Two turns beat one when the lesson is long.** Writing the whole lesson before shipping it is what makes
+a note feel slow: the reader waits for every step to be written. So for three steps or more, send step
+one first, then append the rest while it plays:
+
+```sh
+# turn one: the answer and the first step only
+bun listen.ts reply "…" && bun listen.ts plan "…" "…" && bun listen.ts step 2 &&
+bun listen.ts ship /tmp/x --as "<model>" --stream <<'JSON'
+{ "title": "…", "board": { … }, "stream": true, "steps": [ { …step one… } ] }
+JSON
+
+# turn two: the rest, appended to the file that is already playing
+bun listen.ts append /tmp/x <<'JSON'
+[ { …step two… }, { …step three… } ]
+JSON
+```
+
+The first drawing lands after one step of writing instead of three. `append` keeps the steps and clips
+that already exist, so nothing is recorded twice. For a two-step lesson, skip this and send once.
+
+**One call, not three.** When the whole lesson is already written, the answer, the plan, the file and the
+ship can be a single shell line, which removes two turns of overhead from every note:
 
 ```sh
 mkdir -p /tmp/lesson-x && bun <skill-dir>/listen.ts reply "…" && bun <skill-dir>/listen.ts plan "…" "…" &&
