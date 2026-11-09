@@ -1,6 +1,7 @@
 ---
 name: chalktalk
 description: Explain code, a page, a UI behavior, an email, a Slack thread, or a ticket the way a teacher does at a whiteboard - pointing at the real thing on the user's screen and sketching what is behind it, narrated out loud. Use when the user says "chalktalk", "explain this", "draw it", "whiteboard this", "why is the UI doing X", "walk me through this code", "show me where", or circles something with the Chalktalk bookmark.
+license: MIT
 ---
 
 # Chalktalk

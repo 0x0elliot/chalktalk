@@ -1,15 +1,37 @@
 # Chalktalk
 
-Circle anything on your screen, ask what it does, and Claude answers right there: it underlines the
-real buttons and fields, sketches what happens behind them on a whiteboard, and explains it out loud,
-one plain step at a time. Like a teacher at a blackboard, for your own app.
+**Circle anything on your screen. Ask out loud. Your coding agent answers right there.** It underlines
+the real buttons and fields, sketches what happens behind them on a whiteboard (in 3D when the shape
+matters), and explains it out loud, one plain step at a time.
 
-It is a [Claude Code](https://claude.com/claude-code) skill plus a tiny local helper, a small desktop
-app for Mac, Windows and Linux, and a bookmark for Chrome.
+[![Chalktalk demo: circle a steam engine on Wikipedia, ask how it works, and watch it get built in 3D](media/teaser.gif)](media/chalktalk-demo.mp4)
+
+▶ [Watch the full 80-second demo, with sound](media/chalktalk-demo.mp4)
+
+## A HeyClicky alternative with no subscription
+
+Screen-aware AI tutors like HeyClicky are separate apps with their own monthly plans. Chalktalk is a
+free, open-source skill for the agent you already pay for:
+
+- **Runs on any agent harness.** Claude Code, OpenCode, Codex, or a DeepSeek model behind any of them.
+  The brains are whatever model you already run; Chalktalk is one `SKILL.md` plus a small local helper.
+- **No subscription, no account.** MIT licensed. Nothing leaves your machine except what your own
+  agent sends to its own model.
+- **Talk to it.** Apple dictation (or any dictation app) types straight into the question box.
+- **It talks back for free.** Kokoro, an open-source voice, runs locally. ElevenLabs is optional if you
+  want a more natural voice.
+- **Any app, not just the browser.** A Chrome bookmark for web pages and a small desktop app (Mac,
+  Windows, Linux) for everything else on screen.
 
 ## Install (about 5 minutes)
 
-Needs [Bun](https://bun.sh), Claude Code, and Chrome.
+Needs [Bun](https://bun.sh), an agent that runs shell commands (Claude Code, OpenCode, Codex, Gemini
+CLI, Cursor and the like), and Chrome.
+
+**On any agent:** `npx skills add 0x0elliot/chalktalk` installs the skill where your agent looks for it
+(OpenCode `~/.config/opencode/skills`, Codex `~/.agents/skills`, Gemini CLI `~/.gemini/skills`, Cursor
+`~/.cursor/skills`). Then run `bun install` inside the installed folder and start it by asking your agent
+to "use chalktalk". The steps below are the Claude Code route, which also builds the desktop app.
 
 1. **Get the skill.**
 
@@ -23,18 +45,13 @@ Needs [Bun](https://bun.sh), Claude Code, and Chrome.
 2. **Start listening.** In any Claude Code session, type `/chalktalk listen`. It starts a small helper on
    your machine (`127.0.0.1:47321`, never reachable from the network) and waits for your questions.
 
-3. **Add the bookmark.** In Chrome, show the bookmarks bar (Cmd+Shift+B), right-click it, choose
-   **Add page…**, and fill in:
-   - **Name:** `Chalktalk`
-   - **URL:** paste this whole line:
+3. **Add the bookmark.** Run `bun ~/chalktalk/bookmarklet.ts ~/Desktop`, open the page it writes, and
+   drag the red **Chalktalk** button onto your bookmarks bar (Cmd+Shift+B shows the bar). The bookmark
+   only loads the latest code from the helper, so you never reinstall it.
 
-     ```
-     javascript:void fetch("http://127.0.0.1:47321/point.js").then((r)=>{if(!r.ok)throw r.status;return r.text()},()=>{throw "off"}).then((code)=>{try{(0,eval)(code)}catch(e){throw "error: "+e.message}}).catch((e)=>alert(e===403?"Chalktalk is blocked on this site. In a Claude session: /chalktalk unblock "+location.origin:e==="off"?"Chalktalk isn't running, or Chrome blocked it. Paste /chalktalk listen into a Claude Code session; if it is running, allow this site to reach apps on this device.":"Chalktalk failed to start ("+e+"). Reload the page and try again."))
-     ```
-
-   Or run `bun ~/chalktalk/bookmarklet.ts ~/Desktop`, open the page it writes, and drag the red
-   **Chalktalk** button onto your bookmarks bar. The bookmark only loads the latest code from the helper,
-   so you never reinstall it.
+   The bookmark carries a key made on your computer (`~/.chalktalk/key`). The helper ignores any page
+   that doesn't present it, so a website you visit can't send your agent notes or read your lessons.
+   The desktop app doesn't need the key: the helper recognises it by its app origin.
 
 4. **Allow each site once.** The first time you click Chalktalk on a site, Chrome asks whether the page
    may reach apps on this device. Click **Allow**.
