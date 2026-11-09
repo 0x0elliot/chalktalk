@@ -2,6 +2,7 @@ import { chmod, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pageKey, sameKey } from "./key.ts";
 
 const PORT = 47321;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -10,6 +11,7 @@ const TOKEN_FILE = `${HOME}/token`;
 const BLOCKED_FILE = `${HOME}/blocked.json`;
 const SEEN_FILE = `${HOME}/seen-sites.json`;
 const SCRIPTS = new Set(["point.js", "engine.js", "explain.js"]);
+const DESKTOP_ORIGINS = new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
 const RECENT_LIMIT = 12;
 const LONG_POLL_MS = 50_000;
 const LISTENING_GRACE_MS = LONG_POLL_MS + 20_000;
@@ -132,6 +134,7 @@ async function iconBodies(names: string[]): Promise<Record<string, string>> {
 async function serve(): Promise<void> {
   const idleHours = Number(flag("hours", "3"));
   const secret = crypto.randomUUID();
+  const key = await pageKey();
   const sessions = new Map<string, Session>();
   const unaddressed: string[] = [];
   const recent: Array<{ id: string; dir: string; title: string; path: string; origin: string }> = [];
@@ -322,10 +325,14 @@ async function serve(): Promise<void> {
         if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
         const name = pathname.slice(1);
         const asked = url.searchParams.get("session");
+        const desktop = DESKTOP_ORIGINS.has(req.headers.get("origin") || "");
         if (req.method === "GET" && SCRIPTS.has(name)) {
           const file = Bun.file(new URL(`./${name}`, import.meta.url));
-          return new Response(await file.text(), { headers: { ...headers, "Content-Type": "text/javascript" } });
+          const prefix = desktop && name === "point.js" ? `window.__chalktalkKey=${JSON.stringify(key)};\n` : "";
+          return new Response(prefix + (await file.text()), { headers: { ...headers, "Content-Type": "text/javascript" } });
         }
+        const open = req.method === "GET" && (pathname === "/three.js" || pathname === "/maps.js" || pathname === "/icons.json" || pathname.startsWith("/map/"));
+        if (!open && !desktop && !sameKey(url.searchParams.get("k"), key)) return json({ error: "key required" }, 401, headers);
         if (req.method === "GET" && (pathname === "/three.js" || pathname === "/maps.js")) {
           const code = await (pathname === "/three.js" ? threeBundle() : bundle("maps.entry.js"));
           if (!code) return new Response("library unavailable: run bun install in the chalktalk folder", { status: 503, headers });
@@ -464,7 +471,7 @@ const HOTKEY = process.platform === "darwin" ? "⌃⌥C (Control+Option+C)" : "C
 
 async function helperUp(): Promise<boolean> {
   try {
-    return (await fetch(`${BASE}/status`)).ok;
+    return (await fetch(`${BASE}/status?k=${await pageKey()}`)).ok;
   } catch {
     return false;
   }
@@ -484,7 +491,7 @@ async function start(): Promise<void> {
   await app.exited;
   let others: string[] = [];
   try {
-    const status = (await (await fetch(`${BASE}/status?session=${encodeURIComponent(sessionName)}`)).json()) as { sessions?: Array<{ id: string; state: string }> };
+    const status = (await (await fetch(`${BASE}/status?session=${encodeURIComponent(sessionName)}&k=${await pageKey()}`)).json()) as { sessions?: Array<{ id: string; state: string }> };
     others = (status.sessions ?? []).filter((s) => s.id !== sessionName && s.state !== "away").map((s) => s.id);
   } catch {}
   out(`Listening. Click Chalktalk on any page, or press ${HOTKEY} anywhere on screen.`);
@@ -689,7 +696,7 @@ async function call(path: string, body: unknown): Promise<void> {
 
 async function report(): Promise<void> {
   try {
-    out(await (await fetch(`${BASE}/status?session=${encodeURIComponent(sessionName)}`)).text());
+    out(await (await fetch(`${BASE}/status?session=${encodeURIComponent(sessionName)}&k=${await pageKey()}`)).text());
   } catch {
     out(JSON.stringify({ claude: "off" }));
   }

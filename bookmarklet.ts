@@ -1,4 +1,4 @@
-export {};
+import { pageKey } from "./key.ts";
 
 const [dir] = Bun.argv.slice(2);
 if (!dir) {
@@ -6,7 +6,7 @@ if (!dir) {
   process.exit(1);
 }
 
-const loader = `void fetch("http://127.0.0.1:47321/point.js").then((r) => { if (!r.ok) throw r.status; return r.text(); }).then((code) => (0, eval)(code)).catch((e) => {
+const loader = `window.__chalktalkKey=${JSON.stringify(await pageKey())};void fetch("http://127.0.0.1:47321/point.js").then((r) => { if (!r.ok) throw r.status; return r.text(); }).then((code) => (0, eval)(code)).catch((e) => {
   const blocked = e === 403;
   const cmd = blocked ? "/chalktalkunblock " + location.origin : "/chalktalklisten";
   const d = document.createElement("div");
@@ -36,6 +36,7 @@ const page = `<!doctype html>
     <main>
       <h1>Chalktalk bookmark</h1>
       <p>Drag this button onto your bookmarks bar. Replace any older Chalktalk bookmark; this one never needs updating.</p>
+      <p>The button carries a key that only this computer's Chalktalk accepts, so other websites can't send it notes. Keep this page to yourself.</p>
       <a class="mark" href="${attr}">Chalktalk</a>
       <ol>
         <li>Show the bookmarks bar with Cmd+Shift+B if it is hidden.</li>

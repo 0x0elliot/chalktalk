@@ -987,7 +987,7 @@
       );
     saved.forEach((name) =>
       jobs.push(
-        fetch(`${base}/library/${encodeURIComponent(name)}.json`)
+        fetch(`${base}/library/${encodeURIComponent(name)}.json?k=${encodeURIComponent(global.__chalktalkKey || "")}`)
           .then((r) => (r.ok ? r.json() : null))
           .then((sk) => sk && (C.library = { ...(C.library || {}), [name]: sk }))
           .catch(() => {}),

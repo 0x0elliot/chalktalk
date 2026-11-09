@@ -4,6 +4,19 @@
   } catch {}
   window.__sketchPoint = null;
 
+  const KEY = window.__chalktalkKey || "";
+  const K = `k=${encodeURIComponent(KEY)}`;
+  if (!KEY) {
+    const box = document.createElement("div");
+    box.style.cssText =
+      "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#2c2c2a;color:#fff;font:14px/1.5 system-ui,sans-serif;padding:14px 18px;border-radius:14px;max-width:min(92vw,540px);box-shadow:0 8px 24px #0004";
+    box.textContent =
+      "This Chalktalk bookmark is from an older version. In the chalktalk folder, run: bun bookmarklet.ts ~/Desktop. Open the page it writes and drag the new button over the old bookmark.";
+    document.documentElement.append(box);
+    setTimeout(() => box.remove(), 15000);
+    return;
+  }
+
   const NS = "http://www.w3.org/2000/svg";
   const INTERACTIVE =
     'button, a, input, select, textarea, label, [role="switch"], [role="checkbox"], [role="radio"], [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="combobox"], [contenteditable="true"]';
@@ -42,12 +55,12 @@
   try {
     sessionStorage.setItem("sketchTab", TAB);
   } catch {}
-  fetch(`http://127.0.0.1:47321/status?tab=${TAB}`)
+  fetch(`http://127.0.0.1:47321/status?tab=${TAB}&${K}`)
     .then((r) => r.json())
     .then(async (s) => {
       if (s.agent) agent = s.agent;
       if (s.lesson && s.session) {
-        const lesson = await (await fetch(`http://127.0.0.1:47321/lesson?session=${encodeURIComponent(s.session)}&tab=${TAB}`)).json();
+        const lesson = await (await fetch(`http://127.0.0.1:47321/lesson?session=${encodeURIComponent(s.session)}&tab=${TAB}&${K}`)).json();
         (0, eval)(await (await fetch("http://127.0.0.1:47321/explain.js")).text());
         stop();
         return window.__sketchExplain(lesson);
@@ -76,7 +89,7 @@
     })
     .catch(() => {});
 
-  fetch(`http://127.0.0.1:47321/recent?path=${encodeURIComponent(SCREEN ? "" : location.pathname.replace(/\/+$/, ""))}`)
+  fetch(`http://127.0.0.1:47321/recent?path=${encodeURIComponent(SCREEN ? "" : location.pathname.replace(/\/+$/, ""))}&${K}`)
     .then((r) => r.json())
     .then((saved) => {
       if (!Array.isArray(saved) || !saved.length) return;
@@ -95,7 +108,7 @@
         play.addEventListener("click", async (e) => {
           e.stopPropagation();
           play.textContent = "Loading…";
-          const lesson = await (await fetch(`http://127.0.0.1:47321/recent/${item.id}`)).json();
+          const lesson = await (await fetch(`http://127.0.0.1:47321/recent/${item.id}?${K}`)).json();
           (0, eval)(await (await fetch("http://127.0.0.1:47321/explain.js")).text());
           stop();
           window.__sketchExplain(lesson);
@@ -334,7 +347,7 @@
 
   function waitForLesson(until) {
     const again = (ms) => Date.now() < until && setTimeout(() => waitForLesson(until), ms);
-    const q = `?tab=${window.__sketchTab}${window.__sketchSession ? `&session=${encodeURIComponent(window.__sketchSession)}` : ""}`;
+    const q = `?tab=${window.__sketchTab}${window.__sketchSession ? `&session=${encodeURIComponent(window.__sketchSession)}` : ""}&${K}`;
     fetch(`http://127.0.0.1:47321/status${q}`)
       .then((r) => r.json())
       .then(async (s) => {
@@ -472,7 +485,7 @@
       const pageText = SCREEN
         ? ((state.screen && state.screen.texts) || []).join("\n")
         : (document.body.innerText || "").replace(/\n{3,}/g, "\n\n").slice(0, 15000);
-      fetch("http://127.0.0.1:47321/point", {
+      fetch(`http://127.0.0.1:47321/point?${K}`, {
         method: "POST",
         headers: { "Content-Type": "text/plain" },
         body: JSON.stringify({ summary, ...result(), strokes: undefined, pageText, surface: SCREEN ? "screen" : "page", to: chosen || undefined, tab: window.__sketchTab }),

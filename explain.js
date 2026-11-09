@@ -1,5 +1,6 @@
 (() => {
   const BASE = "http://127.0.0.1:47321";
+  const K = `k=${encodeURIComponent(window.__chalktalkKey || "")}`;
   const NS = "http://www.w3.org/2000/svg";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -90,7 +91,7 @@
     try {
       sessionStorage.setItem("sketchTab", TAB);
     } catch {}
-    const q = `?tab=${TAB}${SESSION ? `&session=${encodeURIComponent(SESSION)}` : ""}`;
+    const q = `?tab=${TAB}${SESSION ? `&session=${encodeURIComponent(SESSION)}` : ""}&${K}`;
     let AGENT = "";
     const who = () => AGENT || "Claude";
     let n = steps.length;
@@ -582,7 +583,7 @@
       const step = steps[current] || {};
       const body = { status: "done", kind, to: SESSION || undefined, tab: TAB, url: location.href, note, step: current + 1, caption: step.caption || "", summary: `${kind === "question" ? "Question" : kind === "answer" ? "Answer" : "Follow-up"} on the lesson, step ${current + 1}: ${note}` };
       navigator.clipboard.writeText(body.summary).catch(() => {});
-      return fetch(`${BASE}/point`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) }).then(() => {
+      return fetch(`${BASE}/point?${K}`, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) }).then(() => {
         token++;
         stopVoice();
         extra.innerHTML = "";
