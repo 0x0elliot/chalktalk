@@ -159,10 +159,20 @@ async function serve(): Promise<void> {
   const live = () => [...sessions.values()].filter((s) => s.thinkingSince || listening(s));
 
   const forTab = (s: Session, tab: string | null) => !s.lessonTab || s.lessonTab === tab;
+  // A page that has not picked a session still gets a lesson when one session has one to play,
+  // so a lesson posted without a note is not stranded behind "choose" by a second listener.
+  const pick = (asked: string | null, unsentOnly = false): Session | undefined => {
+    if (asked) return sessions.get(asked);
+    const all = live();
+    if (all.length === 1) return all[0];
+    return all
+      .filter((s) => s.lessonDir && (!unsentOnly || !s.lessonSent))
+      .sort((a, b) => b.postedAt - a.postedAt)[0];
+  };
 
   function report(name: string | null, tab: string | null = null) {
     const list = live().map((s) => ({ id: s.name, state: stateOf(s) }));
-    const s = name ? sessions.get(name) : live().length === 1 ? live()[0] : undefined;
+    const s = pick(name, true);
     if (!s) return { claude: list.length ? "choose" : "away", sessions: list, session: null, agent: who(), lesson: false, queued: unaddressed.length };
     const planned = s.thinkingSince && s.plan.length ? `Step ${s.step} of ${s.plan.length} · ${s.plan[s.step - 1]}` : "";
     const mine = Boolean(tab) && tab === s.lastTab;
@@ -359,7 +369,7 @@ async function serve(): Promise<void> {
         // The page says when the first step actually started drawing; that is the only number that
         // matters to a person waiting.
         if (req.method === "POST" && pathname === "/lesson/started") {
-          const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
+          const s = pick(asked);
           if (s) {
             s.startedAt = Date.now();
             timings.unshift({ note: s.noteAt, ack: s.ackAt, posted: s.postedAt, started: s.startedAt });
@@ -396,7 +406,7 @@ async function serve(): Promise<void> {
           return json({ ...lesson, assetBase: `/recent/${item.id}/` }, 200, headers);
         }
         if (req.method === "GET" && pathname === "/lesson/live") {
-          const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
+          const s = pick(asked);
           if (!s || !s.lessonDir) return json({ version: 0 }, 200, headers);
           const file = Bun.file(`${s.lessonDir}/lesson.json`);
           if (!(await file.exists())) return json({ version: 0 }, 200, headers);
@@ -405,14 +415,14 @@ async function serve(): Promise<void> {
           return json({ ...data, version: file.lastModified, assetBase: "/lesson/" }, 200, headers);
         }
         if (req.method === "GET" && pathname === "/lesson") {
-          const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
+          const s = pick(asked, true);
           if (!s || !s.lessonDir || s.lessonSent || !forTab(s, tab)) return new Response(null, { status: 204, headers });
           s.lessonSent = true;
           const lesson = (await Bun.file(`${s.lessonDir}/lesson.json`).json()) as Record<string, unknown>;
           return json({ ...lesson, session: s.name }, 200, headers);
         }
         if (req.method === "GET" && /^\/lesson\/[\w.-]+\.(?:mp3|wav|png|jpe?g|gif|webp|svg)$/i.test(pathname)) {
-          const s = asked ? sessions.get(asked) : live().length === 1 ? live()[0] : undefined;
+          const s = pick(asked);
           const file = s && s.lessonDir ? Bun.file(`${s.lessonDir}/${pathname.slice("/lesson/".length)}`) : null;
           if (!file || !(await file.exists())) return new Response("not found", { status: 404, headers });
           return new Response(file, { headers: { ...headers, "Content-Type": audioType(pathname) } });
