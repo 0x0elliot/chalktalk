@@ -163,12 +163,17 @@
       };
       homeColumn();
       const hide = document.createElement("style");
-      hide.textContent = "[data-sketch-board] .sketch-bar,[data-sketch-board] .sketch-say,[data-sketch-board] .sketch-followups{display:none!important}";
+      // The board scales to fit its panel both ways: sized by width alone, a short panel clipped the
+      // bottom of the drawing, and widening the panel only made the drawing taller.
+      hide.textContent =
+        "[data-sketch-board] .sketch-bar,[data-sketch-board] .sketch-say,[data-sketch-board] .sketch-followups{display:none!important}" +
+        "[data-sketch-board]{flex:1;min-height:0;display:flex;flex-direction:column}" +
+        "[data-sketch-board]>svg{flex:1;min-height:0;width:100%;height:100%}";
       column.append(hide);
       boardKeys.forEach((key, k) => {
         const meta = (lesson.boards && lesson.boards[k]) || (k === 0 ? lesson.board : null) || {};
         const panel = document.createElement("div");
-        panel.style.cssText = `position:relative;flex:1;min-height:0;background:#fbfaf6;color:#2c2c2a;border:1px solid #8885;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);pointer-events:auto;overflow:auto;padding:12px 16px;box-sizing:border-box;--sketch-ink:#2c2c2a;--sketch-paper:#fbfaf6;opacity:0;transform:translateX(${away});transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .5s ease`;
+        panel.style.cssText = `position:relative;flex:1;min-height:0;background:#fbfaf6;color:#2c2c2a;border:1px solid #8885;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);pointer-events:auto;overflow:hidden;display:flex;flex-direction:column;padding:12px 16px;box-sizing:border-box;--sketch-ink:#2c2c2a;--sketch-paper:#fbfaf6;opacity:0;transform:translateX(${away});transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .5s ease`;
         const shut = document.createElement("button");
         shut.type = "button";
         shut.textContent = "✕";
