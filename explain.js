@@ -124,6 +124,8 @@
 
     const safe = { top: 0, right: 0, bottom: 0, left: 0, ...(window.__chalktalkSafe || {}) };
     const boardKeys = ["board", "board2"].filter((key) => steps.some((s) => s[key] && s[key].length));
+    // `board` sizes every board; a `boards` entry adds its title and may override the size.
+    const boardMeta = (k) => ({ ...(lesson.board || {}), ...((lesson.boards && lesson.boards[k]) || {}) });
     const panels = [];
     const mounts = [];
     const engines = [];
@@ -171,7 +173,7 @@
         "[data-sketch-board]>svg{flex:1;min-height:0;width:100%;height:100%}";
       column.append(hide);
       boardKeys.forEach((key, k) => {
-        const meta = (lesson.boards && lesson.boards[k]) || (k === 0 ? lesson.board : null) || {};
+        const meta = boardMeta(k);
         const panel = document.createElement("div");
         panel.style.cssText = `position:relative;flex:1;min-height:0;background:#fbfaf6;color:#2c2c2a;border:1px solid #8885;border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18);pointer-events:auto;overflow:hidden;display:flex;flex-direction:column;padding:12px 16px;box-sizing:border-box;--sketch-ink:#2c2c2a;--sketch-paper:#fbfaf6;opacity:0;transform:translateX(${away});transition:transform .7s cubic-bezier(.22,1,.36,1),opacity .5s ease`;
         const shut = document.createElement("button");
@@ -970,10 +972,8 @@
       }
       const drawBoard = (seconds) => {
         engines.forEach(({ key, engine }, k) => {
-          if (step[key] && step[key].length) {
-            panels[k].style.transform = "none";
-            panels[k].style.opacity = "1";
-          }
+          panels[k].style.transform = "none";
+          panels[k].style.opacity = "1";
           const natural = engine.go(current);
           const timed = (step[key] || []).some((item) => typeof item.at === "number");
           if (!timed && seconds && natural > 0.3 && seconds * 0.85 > natural) engine.go(current, (seconds * 0.85) / natural);
@@ -1036,7 +1036,7 @@
         n = steps.length;
         await window.Chalktalk.prepare(steps.flatMap((s) => [...(s.board || []), ...(s.board2 || [])]), BASE);
         engines.forEach((entry, k) => {
-          const meta = (lesson.boards && lesson.boards[k]) || (k === 0 ? lesson.board : null) || {};
+          const meta = boardMeta(k);
           entry.engine = window.Chalktalk.mount(mounts[k], {
             width: meta.width || 600,
             height: meta.height || (boardKeys.length > 1 ? 260 : 420),
