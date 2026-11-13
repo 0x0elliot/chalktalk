@@ -37,6 +37,11 @@
   hint.style.cssText =
     "position:fixed;top:12px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:#2c2c2a;color:#fff;font:14px system-ui,sans-serif;pointer-events:none";
   layer.append(hint);
+  const PRESENT = window.__chalktalkMode === "lesson";
+  if (PRESENT) {
+    window.__chalktalkMode = null;
+    layer.style.display = "none";
+  }
   document.documentElement.append(layer);
 
   let sessions = [];
@@ -55,7 +60,8 @@
   try {
     sessionStorage.setItem("sketchTab", TAB);
   } catch {}
-  fetch(`http://127.0.0.1:47321/status?tab=${TAB}&${K}`)
+  const asked = window.__sketchSession ? `&session=${encodeURIComponent(window.__sketchSession)}` : "";
+  fetch(`http://127.0.0.1:47321/status?tab=${TAB}${asked}&${K}`)
     .then((r) => r.json())
     .then(async (s) => {
       if (s.agent) agent = s.agent;
@@ -64,6 +70,11 @@
         (0, eval)(await (await fetch("http://127.0.0.1:47321/explain.js")).text());
         stop();
         return window.__sketchExplain(lesson);
+      }
+      if (PRESENT) {
+        stop();
+        if (SCREEN) SCREEN.done();
+        return;
       }
       sessions = (s.sessions || []).filter((x) => x.state !== "away");
       if (!sessions.length) {

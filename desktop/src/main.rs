@@ -196,6 +196,13 @@ fn hide(app: &AppHandle) {
     let _ = window.eval("location.reload()");
 }
 
+#[tauri::command]
+fn present(app: AppHandle) {
+    if !app.state::<Overlay>().showing.load(Ordering::SeqCst) {
+        show(&app, "lesson");
+    }
+}
+
 fn toggle(app: &AppHandle) {
     toggle_mode(app, "draw");
 }
@@ -294,7 +301,7 @@ fn follow_cursor(app: AppHandle) {
 fn main() {
     tauri::Builder::default()
         .manage(Overlay::default())
-        .invoke_handler(tauri::generate_handler![capture, done, set_hit])
+        .invoke_handler(tauri::generate_handler![capture, done, set_hit, present])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);

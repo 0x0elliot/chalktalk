@@ -47,6 +47,9 @@ image. Read the ones you need before the first lesson of a session.
 - Shipping a lesson: `bun <skill-dir>/listen.ts send <dir> --as "<model>"` (check, narrate, post, save,
   and listen again, in one call). Every shipped lesson is kept; `listen.ts saved` lists them and
   `listen.ts replay <slug>` plays one again in a second.
+- A lesson you send with no note behind it (the user asked for it in chat, not by circling) opens on its
+  own: the desktop app watches for it and presents it within two seconds. Never tell the user to press a
+  hotkey or "Just ask" to see it.
 - `/chalktalk block <origin>` / `/chalktalk unblock <origin>`: run `bun <skill-dir>/listen.ts block|unblock
   <origin>` for a site the user named, and say what changed.
 - `/chalktalk stop`: run `listen.ts leave`, and only if no other session is listening, also
@@ -248,7 +251,7 @@ On the whiteboard (`board`, and `board2` for a second one with
 | `arrow` | `from: [x, y], to: [x, y], bend, label, labelAt, color` |
 | `circle` | `cx, cy, r` (or `rx, ry`), `label, color` |
 | `line` | `points: [[x, y], …], dashed, color` |
-| `text` | `x, y, text, size, anchor, color` |
+| `text` | `x, y, text, size, anchor, color` (`x` is the centre unless `anchor` is `start` or `end`) |
 | `person` | `x, y, label` (a stick figure, about 120 px tall) |
 | `code` | `id, x, y, file, start, lines` |
 | `ring`, `underline` | `code, line, cols, note, noteAt, color` (marks a line of a `code` item) |
@@ -508,6 +511,15 @@ lesson about the real world usually needs both:
   event with both years in `when` ("feb and oct 1917"), put one above and one below, or drop the earlier
   mark if it is only colour. If it still does not fit, the timeline is the wrong shape: widen the board,
   narrow the span, or give it its own board. A timeline where two labels touch is worse than no timeline.
+  `side` is `"above"` or `"below"` (`"top"` and `"bottom"` mean the same). The engine keeps marks apart
+  for you: a label that would touch another label, a stem, or anything else on the board slides sideways
+  on an elbow leader, flips side, or rises on a taller stem, and earlier marks never move. That is a
+  safety net, not a layout: when `check.ts` says a mark has no free spot, merge marks or widen the line.
+- **Text never leaves the board.** A `text` item's `x` is its centre unless `anchor` is `"start"` or
+  `"end"`, so `{ "x": 40, "text": "a long label" }` hangs off the left edge. Use `"anchor": "start"` for
+  text at a left margin. The engine shrinks text wider than the board and slides any text back inside,
+  and a free-standing label (a `text`, an arrow's label, a circle's label) that lands on other text
+  steps to the nearest free spot; `check.ts` reports each one so you can place it where you meant.
 - If the narration has a country, region, border, route, migration, war or election, it goes on a `map`
   with `focus` or `bbox` on that place, and `highlight`, `pin` and `route` added per step. Say where
   before what: draw the place, then the event on it. Never explain a place with boxes.

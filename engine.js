@@ -366,11 +366,182 @@
         }
       } catch {}
     }
+    if (opts.clamp !== false) keepInside(t, lines, opts.size || 20);
     return t;
   }
 
+  // Patrick Hand averages about half its size per character; check.ts uses the same estimate.
+  const textWidth = (text, size) => Math.max(0, ...String(text).split("\n").map((l) => l.length)) * size * 0.52;
+  const BOARD_PAD = 6;
+
+  // No text ever leaves the board: shrink what is wider than the board, then slide it back inside.
+  function keepInside(t, lines, size) {
+    const svg = t.ownerSVGElement;
+    const vb = svg && svg.viewBox && svg.viewBox.baseVal;
+    if (!vb || !vb.width || !vb.height) return;
+    const measure = () => {
+      try {
+        const b = t.getBBox();
+        if (b && b.width) return b;
+      } catch {}
+      const s = Number(t.getAttribute("font-size")) || size;
+      const w = textWidth(lines.join("\n"), s);
+      const h = lines.length * s * 1.15;
+      const x = Number(t.getAttribute("x"));
+      const anchor = t.getAttribute("text-anchor");
+      return { x: anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2, y: Number(t.getAttribute("y")) - h / 2, width: w, height: h };
+    };
+    const room = vb.width - 2 * BOARD_PAD;
+    let box = measure();
+    let s = Number(t.getAttribute("font-size")) || size;
+    while (box.width > room && s > 11) {
+      s -= 1;
+      t.setAttribute("font-size", s);
+      box = measure();
+    }
+    let dx = 0;
+    let dy = 0;
+    if (box.x < BOARD_PAD) dx = BOARD_PAD - box.x;
+    else if (box.x + box.width > vb.width - BOARD_PAD) dx = vb.width - BOARD_PAD - box.x - box.width;
+    if (box.y < BOARD_PAD) dy = BOARD_PAD - box.y;
+    else if (box.y + box.height > vb.height - BOARD_PAD) dy = vb.height - BOARD_PAD - box.y - box.height;
+    shift(t, dx, dy);
+  }
+
+  function shift(t, dx, dy) {
+    if (!dx && !dy) return;
+    t.setAttribute("x", Number(t.getAttribute("x")) + dx);
+    t.setAttribute("y", Number(t.getAttribute("y")) + dy);
+    t.querySelectorAll("tspan").forEach((span) => span.setAttribute("x", Number(span.getAttribute("x")) + dx));
+  }
+
+  // A free-standing label never sits on another one. If it lands on text already drawn on this
+  // board, it steps down, up, then sideways to the nearest free spot that is still on the board.
+  function dodge(t, own) {
+    const svg = t.ownerSVGElement;
+    const vb = svg && svg.viewBox && svg.viewBox.baseVal;
+    if (!vb || !vb.width) return;
+    const box = (n) => {
+      try {
+        const b = n.getBBox();
+        return b && b.width ? b : null;
+      } catch {
+        return null;
+      }
+    };
+    const b = box(t);
+    if (!b) return;
+    const seg = svg.dataset.seg || "0";
+    const others = [...svg.querySelectorAll(`g[data-seg="${seg}"] text`)].filter((n) => !own.contains(n)).map(box).filter(Boolean);
+    const hit = (dx, dy) => others.some((o) => b.x + dx < o.x + o.width + 4 && o.x < b.x + dx + b.width + 4 && b.y + dy < o.y + o.height + 2 && o.y < b.y + dy + b.height + 2);
+    const inside = (dx, dy) => b.x + dx >= BOARD_PAD && b.x + dx + b.width <= vb.width - BOARD_PAD && b.y + dy >= BOARD_PAD && b.y + dy + b.height <= vb.height - BOARD_PAD;
+    if (!hit(0, 0)) return;
+    const s = b.height + 4;
+    const side = b.width / 2 + 8;
+    const tries = [[0, s], [0, -s], [0, 2 * s], [0, -2 * s], [side, 0], [-side, 0], [side, s], [-side, s], [0, 3 * s], [0, -3 * s]];
+    const free = tries.find(([dx, dy]) => inside(dx, dy) && !hit(dx, dy));
+    if (free) shift(t, free[0], free[1]);
+  }
+
+  const sideOf = (side) =>
+    side === "above" || side === "top" || side === "up" ? "above" : side === "below" || side === "bottom" || side === "down" ? "below" : null;
+
+  // Places a timeline mark's label where it touches nothing: no other label on the line, no stem,
+  // nothing else on the board. It tries the asked side, then the other side, sliding the label
+  // sideways on an elbow leader before lifting it on a taller stem. Earlier marks never move, so a
+  // timeline built up step by step stays put while it grows. check.ts runs the same placement.
+  function placeEvent(line, e, W, H, obstacles = []) {
+    const ex = line.X(e.year);
+    const label = String(e.label ?? "");
+    const when = e.when ?? e.year;
+    const footprint = Math.max(Math.min(textWidth(label, 18), e.width || 150), when == null ? 0 : textWidth(String(when), 13)) + 10;
+    const half = footprint / 2;
+    const asked = sideOf(e.side);
+    const first = asked || (line.count++ % 2 === 0 ? "above" : "below");
+    const other = first === "above" ? "below" : "above";
+    const reaches = e.reach ? [e.reach] : [58, 100, 142];
+    const slides = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8].map((k) => k * footprint);
+    const sides = asked ? [first] : [first, other];
+    const order = [];
+    for (const reach of reaches) for (const side of sides) for (const dx of slides) order.push([side, reach, dx]);
+    if (asked) for (const reach of reaches) for (const dx of slides) order.push([other, reach, dx]);
+    const centre = (dx) => Math.min(Math.max(ex + dx, BOARD_PAD + half), W - BOARD_PAD - half);
+    const rectFor = (side, reach, cx) =>
+      side === "above"
+        ? { x0: cx - half, x1: cx + half, y0: line.y - reach - 36, y1: line.y - reach + 8 }
+        : { x0: cx - half, x1: cx + half, y0: line.y + reach - 8, y1: line.y + reach + 38 };
+    const stemsFor = (side, reach, cx) => {
+      const end = side === "above" ? line.y - reach + 14 : line.y + reach - 14;
+      const upright = side === "above" ? { x0: ex - 2, x1: ex + 2, y0: end, y1: line.y - 6 } : { x0: ex - 2, x1: ex + 2, y0: line.y + 6, y1: end };
+      return cx === ex ? [upright] : [upright, { x0: Math.min(ex, cx) - 2, x1: Math.max(ex, cx) + 2, y0: end - 2, y1: end + 2 }];
+    };
+    const overlap = (a, b) => Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) + 12) * Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) + 6);
+    const sum = (list, r) => list.reduce((s, l) => s + overlap(r, l), 0);
+    const cost = (side, reach, cx) => {
+      const r = rectFor(side, reach, cx);
+      if (r.y0 < 0 || r.y1 > H) return Infinity;
+      const stems = stemsFor(side, reach, cx);
+      return sum(line.labels, r) + sum(line.stems, r) + sum(obstacles, r) + stems.reduce((s, st) => s + sum(line.labels, st) + sum(obstacles, st), 0);
+    };
+    let best = null;
+    for (const [side, reach, dx] of order) {
+      const cx = centre(dx);
+      const c = cost(side, reach, cx);
+      if (!best || c < best.cost) best = { side, reach, cx, cost: c };
+      if (c === 0) break;
+    }
+    const pick = best && Number.isFinite(best.cost) ? best : { side: first, reach: reaches[0], cx: centre(0), cost: Infinity };
+    line.labels.push({ ...rectFor(pick.side, pick.reach, pick.cx), label });
+    line.stems.push(...stemsFor(pick.side, pick.reach, pick.cx));
+    return { ex, cx: pick.cx, above: pick.side === "above", reach: pick.reach, clash: pick.cost !== 0 };
+  }
+
+  // Where an item will sit, estimated from its fields, so a timeline label can avoid things drawn
+  // later in the lesson as well as things already drawn. check.ts uses the same estimate.
+  function footprintOf(it) {
+    const n = (v) => Number.isFinite(v);
+    if (["box", "bubble", "figure", "image", "bars", "row", "map"].includes(it.type) && [it.x, it.y, it.w, it.h].every(n))
+      return { x0: it.x, x1: it.x + it.w, y0: it.y, y1: it.y + it.h };
+    if (it.type === "code" && n(it.x) && n(it.y)) {
+      const lines = it.lines || [];
+      const w = it.w || GUTTER + 16 + Math.max(10, ...lines.map((l) => String(l).length)) * CHAR_W;
+      return { x0: it.x, x1: it.x + w, y0: it.y - 22, y1: it.y + lines.length * LINE_H + 16 };
+    }
+    if (it.type === "text" && n(it.x) && n(it.y)) {
+      const size = it.size || 20;
+      const w = textWidth(it.text ?? "", size);
+      const h = String(it.text ?? "").split("\n").length * size * 1.15;
+      const x0 = it.anchor === "start" ? it.x : it.anchor === "end" ? it.x - w : it.x - w / 2;
+      return { x0, x1: x0 + w, y0: it.y - h / 2, y1: it.y + h / 2 };
+    }
+    if ((it.type === "icon" || it.type === "logo") && n(it.x) && n(it.y)) {
+      const size = it.size || 32;
+      return { x0: it.x, x1: it.x + size, y0: it.y, y1: it.y + size + (it.label ? 26 : 0) };
+    }
+    if (it.type === "person" && n(it.x) && n(it.y)) return { x0: it.x - 32, x1: it.x + 32, y0: it.y - 14, y1: it.y + 122 };
+    return null;
+  }
+
+  // What else is on the current board, drawn already or still to come, for a timeline label to
+  // stay clear of.
+  function obstaclesOn(svg, except) {
+    const seg = svg.dataset.seg || "0";
+    const planned = (svg.__plan && svg.__plan[seg]) || [];
+    return planned.concat([...svg.querySelectorAll(`g[data-seg="${seg}"]`)]
+      .filter((node) => node !== except && !["timeline", "event", "arrow", "line"].includes(node.dataset.type))
+      .map((node) => {
+        try {
+          const b = node.getBBox();
+          return b.width && b.height ? { x0: b.x, x1: b.x + b.width, y0: b.y, y1: b.y + b.height } : null;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean));
+  }
+
   function build(svg, it, rand, codes, open) {
-    let g = make("g", {}, svg);
+    let g = make("g", { "data-seg": svg.dataset.seg || "0", "data-type": it.type }, svg);
     const out = [];
     if (it.brand && !it.color) it.color = brandOf(it.brand) ? brandOf(it.brand).color : undefined;
     const ink = paint(it.color);
@@ -446,7 +617,7 @@
       out.push({ node: make("path", { d, fill: "none", stroke: tone, "stroke-width": 2.2 / rec.k, "stroke-linejoin": "round" }, g), kind: "stroke", at: it.at });
       if (r.label) {
         const [cx, cy] = rec.path.centroid(shape);
-        label(r.label, cx, cy, { size: 18 / rec.k, color: r.color, halo: true, haloWidth: 5 / rec.k });
+        label(r.label, cx, cy, { size: 18 / rec.k, color: r.color, halo: true, haloWidth: 5 / rec.k, clamp: false });
       }
     };
     const mapPin = (rec, p) => {
@@ -454,7 +625,7 @@
       if (!at) return;
       const k = rec.k;
       fade(make("circle", { cx: at[0], cy: at[1], r: 5 / k, fill: paint(p.color || "red"), stroke: "#fff", "stroke-width": 1.5 / k }, g));
-      if (p.label) label(p.label, at[0] + 9 / k, at[1], { size: 17 / k, anchor: "start", color: p.color, halo: true, haloWidth: 5 / k });
+      if (p.label) label(p.label, at[0] + 9 / k, at[1], { size: 17 / k, anchor: "start", color: p.color, halo: true, haloWidth: 5 / k, clamp: false });
     };
     const mapRoute = (rec, r) => {
       const a = rec.proj(r.from || []);
@@ -467,18 +638,18 @@
       stroke(shaft);
       stroke(head);
       it.weight = before;
-      if (r.label) label(r.label, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 14 / k, { size: 16 / k, color: r.color, halo: true, haloWidth: 5 / k });
+      if (r.label) label(r.label, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 14 / k, { size: 16 / k, color: r.color, halo: true, haloWidth: 5 / k, clamp: false });
     };
     const event = (line, e) => {
-      const ex = line.X(e.year);
-      const above = e.side ? e.side === "above" : line.count++ % 2 === 0;
-      const reach = e.reach || 58;
+      const vb = svg.viewBox.baseVal;
+      const { ex, cx, above, reach } = placeEvent(line, e, vb.width, vb.height, obstaclesOn(svg, g));
       const ly = above ? line.y - reach : line.y + reach;
       const tone = e.color || it.color;
-      stroke(`M${ex} ${line.y} L${ex} ${above ? ly + 14 : ly - 14}`);
+      const end = above ? ly + 14 : ly - 14;
+      stroke(cx === ex ? `M${ex} ${line.y} L${ex} ${end}` : `M${ex} ${line.y} L${ex} ${end} L${cx} ${end}`);
       out.push({ node: make("circle", { cx: ex, cy: line.y, r: 5, fill: paint(tone) }, g), kind: "fade", at: it.at });
-      label(e.label, ex, above ? ly - 4 : ly + 6, { size: 18, color: tone, maxWidth: e.width || 150, halo: true });
-      if (e.when ?? e.year) label(String(e.when ?? e.year), ex, above ? ly - 24 : ly + 26, { size: 13, color: "gray", halo: true });
+      label(e.label, cx, above ? ly - 4 : ly + 6, { size: 18, color: tone, maxWidth: e.width || 150, halo: true });
+      if (e.when ?? e.year) label(String(e.when ?? e.year), cx, above ? ly - 24 : ly + 26, { size: 13, color: "gray", halo: true });
     };
 
     switch (it.type) {
@@ -534,7 +705,11 @@
         const rx = it.rx || it.r;
         const ry = it.ry || it.r;
         stroke(wobble(rand, oval(it.cx, it.cy, rx, ry), 1.2));
-        if (it.label) label(it.label, it.cx, it.cy + ry + 22, { size: 18, halo: true });
+        if (it.label) {
+          const t = write(g, { color: it.color, text: it.label, size: 18, halo: true }, it.cx, it.cy + ry + 22);
+          dodge(t, g);
+          fade(t);
+        }
         break;
       }
       case "arrow": {
@@ -554,16 +729,21 @@
             return !(svg.__boxes || []).some((r) => x0 < r.x + r.w && r.x < x0 + tw && y - 11 < r.y + r.h && r.y < y + 11);
           };
           const [lx, ly, anchor] = it.labelAt ? [...it.labelAt] : spots.find(clear) || spots[0];
-          label(it.label, lx, ly, { size: 18, halo: true, anchor });
+          const t = write(g, { color: it.color, text: it.label, size: 18, halo: true, anchor }, lx, ly);
+          dodge(t, g);
+          fade(t);
         }
         break;
       }
       case "line":
         stroke(wobble(rand, it.points, 1.2), it.dashed);
         break;
-      case "text":
-        label(it.text, it.x, it.y, { size: it.size, anchor: it.anchor, mono: it.mono, halo: true });
+      case "text": {
+        const t = write(g, { color: it.color, text: it.text, size: it.size, anchor: it.anchor, mono: it.mono, halo: true }, it.x, it.y);
+        dodge(t, g);
+        fade(t);
         break;
+      }
       case "person": {
         const { x, y } = it;
         const pose = it.pose || "stand";
@@ -726,7 +906,7 @@
         const to = Number(it.to);
         const span = to - from || 1;
         const X = (when) => x + ((Number(when) - from) / span) * w;
-        const line = { X, y, count: 0 };
+        const line = { X, y, count: 0, labels: [], stems: [] };
         codes[`timeline:${it.id || "timeline"}`] = line;
         (it.eras || []).forEach((era) => {
           const x0 = X(era.from);
@@ -770,7 +950,9 @@
         break;
       }
       case "code": {
-        const lines = it.lines || [];
+        // A line longer than the board allows is cut with an ellipsis rather than run off the edge.
+        const fits = Math.max(10, Math.floor((svg.viewBox.baseVal.width - BOARD_PAD - it.x - GUTTER - 16) / CHAR_W));
+        const lines = (it.lines || []).map((l) => (l.length > fits ? `${l.slice(0, fits - 1)}…` : l));
         const start = it.start || 1;
         const w = it.w || GUTTER + 16 + Math.max(10, ...lines.map((l) => l.length)) * CHAR_W;
         const h = lines.length * LINE_H + 16;
@@ -779,8 +961,8 @@
         if (it.file) label(`${it.file}:${start}`, it.x, it.y - 12, { size: 13, anchor: "start", mono: true, color: "gray" });
         lines.forEach((line, i) => {
           const ly = it.y + 8 + i * LINE_H + LINE_H / 2;
-          fade(write(g, { text: String(start + i), size: 12, anchor: "end", mono: true, color: "gray" }, it.x + GUTTER - 10, ly));
-          fade(write(g, { text: line, size: 13, anchor: "start", mono: true }, it.x + GUTTER, ly));
+          fade(write(g, { text: String(start + i), size: 12, anchor: "end", mono: true, color: "gray", clamp: false }, it.x + GUTTER - 10, ly));
+          fade(write(g, { text: line, size: 13, anchor: "start", mono: true, clamp: false }, it.x + GUTTER, ly));
         });
         break;
       }
@@ -1088,7 +1270,18 @@
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
     dedupe(scene);
     svg.__boxes = layout(scene, W, H);
-    const steps = (scene.steps || []).map((step) => (step.items || []).flatMap((it) => build(svg, it, rand, codes, open)));
+    svg.__plan = [];
+    (scene.steps || []).reduce((s, step, i) => {
+      const at = step.clear && i ? s + 1 : s;
+      svg.__plan[at] = (svg.__plan[at] || []).concat((step.items || []).map(footprintOf).filter(Boolean));
+      return at;
+    }, 0);
+    let seg = 0;
+    const steps = (scene.steps || []).map((step, i) => {
+      if (step.clear && i) seg++;
+      svg.dataset.seg = String(seg);
+      return (step.items || []).flatMap((it) => build(svg, it, rand, codes, open));
+    });
 
     const bar = document.createElement("div");
     bar.className = "sketch-bar";

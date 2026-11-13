@@ -25,7 +25,36 @@
         invoke("set_hit", { hit: now });
       };
 
+      // A lesson sent from a session, with no note behind it, waits in the helper. The overlay
+      // stays loaded while hidden, so it watches for one and presents itself.
+      let active = false;
+      const HELPER = "http://127.0.0.1:47321";
+      const pending = async () => {
+        const s = await (await fetch(`${HELPER}/status?tab=screen`)).json();
+        if (s.lesson) return s.session || true;
+        if (s.claude !== "choose") return null;
+        for (const other of s.sessions || []) {
+          const t = await (await fetch(`${HELPER}/status?tab=screen&session=${encodeURIComponent(other.id)}`)).json();
+          if (t.lesson) return other.id;
+        }
+        return null;
+      };
+      const watch = async () => {
+        if (active) return;
+        try {
+          const session = await pending();
+          if (session && !active) {
+            if (typeof session === "string") window.__sketchSession = session;
+            invoke("present");
+            return;
+          }
+        } catch {}
+        setTimeout(watch, 1500);
+      };
+      watch();
+
       window.__chalktalkStart = () => {
+        active = true;
         hit = null;
         fetch("http://127.0.0.1:47321/point.js")
           .then((r) => {
