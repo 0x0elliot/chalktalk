@@ -210,6 +210,11 @@ steps.forEach((step, i) => {
     }
 
     // Cues that point at words the step never says.
+    if (it.type === "arrow" && it.labelAt != null) {
+      const ok = (typeof it.labelAt === "number" && it.labelAt >= 0 && it.labelAt <= 1) || (Array.isArray(it.labelAt) && it.labelAt.length >= 2 && it.labelAt.slice(0, 2).every(Number.isFinite));
+      if (!ok) warn(n, `arrow "${it.label ?? ""}": labelAt must be [x, y] or a number from 0 to 1, not ${JSON.stringify(it.labelAt)}`);
+    }
+    if (it.type === "arrow" && (!Array.isArray(it.from) || !Array.isArray(it.to))) warn(n, `arrow "${it.label ?? ""}" needs from: [x, y] and to: [x, y]`);
     if (it.on && !String(step.say || "").includes(it.on)) warn(n, `cue "${it.on}" is not in this step's say`);
   });
 

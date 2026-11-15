@@ -248,7 +248,7 @@ On the whiteboard (`board`, and `board2` for a second one with
 | `box` | `x, y, w, h, label, sub, color, open, brand` |
 | `logo` | `brand, x, y, size, label` |
 | `bubble` | `x, y, w, h, text, who, to: [x, y]` (a thought bubble, for what someone expects) |
-| `arrow` | `from: [x, y], to: [x, y], bend, label, labelAt, color` |
+| `arrow` | `from: [x, y], to: [x, y], bend, label, labelAt, color` (`labelAt` is `[x, y]` or a number 0 to 1 along the arrow) |
 | `circle` | `cx, cy, r` (or `rx, ry`), `label, color` |
 | `line` | `points: [[x, y], …], dashed, color` |
 | `text` | `x, y, text, size, anchor, color` (`x` is the centre unless `anchor` is `start` or `end`) |

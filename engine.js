@@ -728,7 +728,12 @@
             const x0 = anchor === "start" ? x : anchor === "end" ? x - tw : x - tw / 2;
             return !(svg.__boxes || []).some((r) => x0 < r.x + r.w && r.x < x0 + tw && y - 11 < r.y + r.h && r.y < y + 11);
           };
-          const [lx, ly, anchor] = it.labelAt ? [...it.labelAt] : spots.find(clear) || spots[0];
+          // labelAt is a point [x, y, anchor?], or a number: how far along the arrow, 0 to 1.
+          const along = typeof it.labelAt === "number" && it.labelAt >= 0 && it.labelAt <= 1 ? it.labelAt : null;
+          const at = Array.isArray(it.labelAt) && it.labelAt.length >= 2 ? [...it.labelAt]
+            : along !== null ? [it.from[0] + (it.to[0] - it.from[0]) * along + (upright ? 12 : 0), it.from[1] + (it.to[1] - it.from[1]) * along - (upright ? 0 : 18), upright ? "start" : undefined]
+            : null;
+          const [lx, ly, anchor] = at || spots.find(clear) || spots[0];
           const t = write(g, { color: it.color, text: it.label, size: 18, halo: true, anchor }, lx, ly);
           dodge(t, g);
           fade(t);
@@ -1280,7 +1285,15 @@
     const steps = (scene.steps || []).map((step, i) => {
       if (step.clear && i) seg++;
       svg.dataset.seg = String(seg);
-      return (step.items || []).flatMap((it) => build(svg, it, rand, codes, open));
+      // One malformed item must not blank the whole board: draw the rest and say which one failed.
+      return (step.items || []).flatMap((it) => {
+        try {
+          return build(svg, it, rand, codes, open);
+        } catch (e) {
+          console.error(`chalktalk: step ${i + 1} skipped a ${it && it.type} item: ${e && e.message}`);
+          return [];
+        }
+      });
     });
 
     const bar = document.createElement("div");

@@ -98,7 +98,7 @@
         layer.append(box);
       } else if (!chosen || !sessions.some((x) => x.id === chosen)) chosen = sessions[0].id;
     })
-    .catch(() => {});
+    .catch((e) => console.error("chalktalk: could not start the lesson", e));
 
   fetch(`http://127.0.0.1:47321/recent?path=${encodeURIComponent(SCREEN ? "" : location.pathname.replace(/\/+$/, ""))}&${K}`)
     .then((r) => r.json())
