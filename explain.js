@@ -420,6 +420,7 @@
         localStorage.setItem("chalktalkSound", on ? "on" : "off");
       } catch {}
       sound.textContent = on ? "🔊" : "🔇";
+      if (!on && window.Chalktalk && window.Chalktalk.sound && window.Chalktalk.sound.stop) window.Chalktalk.sound.stop();
     });
     sound.title = "Drawing sounds on or off";
     // Save as video: the helper renders the boards with the voice into ~/Downloads and shows the file.
