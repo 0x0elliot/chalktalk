@@ -1255,7 +1255,8 @@
     const slots = {};
     steps.forEach((step, i) =>
       (step.items || []).forEach((it) => {
-        if (it && it.type === "row" && Array.isArray(it.items)) slots[keyOf(it, segs[i])] = Math.max(slots[keyOf(it, segs[i])] || 0, it.items.length);
+        // slots are counted across the whole lesson, so a spine redrawn after a clear keeps its card sizes
+        if (it && it.type === "row" && Array.isArray(it.items)) slots[keyOf(it, 0)] = Math.max(slots[keyOf(it, 0)] || 0, it.items.length);
       }),
     );
     const drawn = new Map();
@@ -1263,7 +1264,7 @@
       if (step.clear && i) drawn.clear();
       step.items = (step.items || []).flatMap((it) => {
         if (!it || it.type !== "row" || !Array.isArray(it.items) || !it.items.length) return [it];
-        const n = slots[keyOf(it, segs[i])] || it.items.length;
+        const n = slots[keyOf(it, 0)] || it.items.length;
         const gap = it.gap ?? 16;
         const h = it.h || 58;
         const bw = (it.w - gap * (n - 1)) / n;
