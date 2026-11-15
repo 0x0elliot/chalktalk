@@ -421,6 +421,13 @@ A row redrawn with more cards in a later step (a growing spine) keeps every card
 for its longest version, and only the new cards draw. Boxes drawn inside a bigger box stay where you put
 them.
 
+**Save a lesson as a video.** The lesson bar has a "⬇ Video" button: the helper renders the boards,
+captions and voice into `~/Downloads/<title>.mp4` and shows it in Finder (or the file manager). From the
+terminal: `bun <skill-dir>/video.ts <lesson-dir | saved-slug> [--vertical] [--out file.mp4]`, where
+`--vertical` makes a 1080x1920 cut for reels and shorts. It plays the lesson in real time in headless
+Chrome, so a two-minute lesson takes about two minutes. Needs Chrome and ffmpeg. 3D stages and page
+highlights are not in the video.
+
 **A missing voice is not a missing answer.** If narration fails (no key, an expired token, no network),
 still post the lesson: the page falls back to the system voice. `send` does this on its own now, so never
 abandon a lesson because the recording failed — tell the user which voice they are hearing instead.

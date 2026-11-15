@@ -1414,16 +1414,29 @@
         if (kind === "fade") node.style.opacity = 0;
         else if (kind === "zoom") node.style.transform = "none";
         else {
+          // Park the dash a little past the end, so its rounded cap does not show as a dot
+          // where the stroke will start before it is drawn.
           const L = node.getTotalLength();
-          node.style.strokeDasharray = L;
-          node.style.strokeDashoffset = L;
+          node.style.strokeDasharray = `${L} ${L + 60}`;
+          node.style.strokeDashoffset = L + 30;
         }
       });
 
     const scope = `board-${Math.random().toString(36).slice(2, 8)}`;
     const reveal = (i, animate, stretch = 1) => {
       let t = 0;
-      steps[i].forEach(({ node, kind, at, rise, to }) => {
+      // Draw in the order things are spoken, not the order they are listed: an item cued late in
+      // the sentence but written first must not hold back everything after it. Uncued parts stay
+      // with the cued item before them.
+      let last = 0;
+      const order = steps[i]
+        .map((entry, n) => {
+          if (typeof entry.at === "number") last = entry.at;
+          return { entry, key: last, n };
+        })
+        .sort((a, b) => a.key - b.key || a.n - b.n)
+        .map((x) => x.entry);
+      order.forEach(({ node, kind, at, rise, to }) => {
         if (animate && typeof at === "number") t = Math.max(t, at);
         if (kind === "zoom") {
           node.style.transition = animate ? `transform 1.6s cubic-bezier(.45,0,.2,1) ${t}s` : "none";

@@ -422,9 +422,55 @@
       sound.textContent = on ? "🔊" : "🔇";
     });
     sound.title = "Drawing sounds on or off";
-    [back, pause, next, replay, clear, sound].forEach((b) => (b.style.padding = "3px 9px"));
+    // Save as video: the helper renders the boards with the voice into ~/Downloads and shows the file.
+    const recentId = /^\/recent\/(\d+)\//.exec(lesson.assetBase || "")?.[1];
+    const videoUrl = `${BASE}/lesson/video${q}${recentId ? `&recent=${recentId}` : ""}`;
+    let videoPoll = 0;
+    const showVideo = (job) => {
+      if (!job || job.state === "idle" || job.state === "none") {
+        video.textContent = "⬇ Video";
+        video.disabled = false;
+        return false;
+      }
+      if (job.state === "rendering") {
+        const left = Number(job.left) || 0;
+        video.textContent = left ? `Saving… ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "Saving…";
+        video.disabled = true;
+        return true;
+      }
+      video.disabled = false;
+      if (job.state === "done") {
+        video.textContent = "✓ In Downloads";
+        video.title = job.file || "Saved to your Downloads folder";
+      } else {
+        video.textContent = "Video failed";
+        video.title = job.error || "";
+      }
+      return false;
+    };
+    const watchVideo = () => {
+      clearTimeout(videoPoll);
+      fetch(videoUrl)
+        .then((r) => r.json())
+        .then((job) => {
+          if (showVideo(job) && root.isConnected) videoPoll = setTimeout(watchVideo, 1500);
+        })
+        .catch(() => showVideo({ state: "failed", error: "Chalktalk is off" }));
+    };
+    const video = button("⬇ Video", () => {
+      video.disabled = true;
+      video.textContent = "Saving…";
+      fetch(videoUrl, { method: "POST", headers: { "Content-Type": "text/plain" }, body: "{}" })
+        .then((r) => r.json())
+        .then((job) => {
+          if (showVideo(job)) videoPoll = setTimeout(watchVideo, 1500);
+        })
+        .catch(() => showVideo({ state: "failed", error: "Chalktalk is off" }));
+    });
+    video.title = "Save this lesson as a video (MP4) in your Downloads folder";
+    [back, pause, next, replay, clear, sound, video].forEach((b) => (b.style.padding = "3px 9px"));
     top.append(light, line, extra);
-    controls.append(back, pause, next, replay, clear, sound);
+    controls.append(back, pause, next, replay, clear, sound, video);
     bottom.append(controls, ask);
     // One stage element per id, created where it first appears and never recreated, so dragging a
     // model somewhere keeps it there for the rest of the lesson; only its parts are rebuilt.

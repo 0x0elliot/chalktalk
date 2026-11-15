@@ -138,6 +138,59 @@ async function serve(): Promise<void> {
   const sessions = new Map<string, Session>();
   const unaddressed: string[] = [];
   const recent: Array<{ id: string; dir: string; title: string; path: string; origin: string }> = [];
+  type VideoJob = { state: "rendering" | "done" | "failed"; left?: number; file?: string; error?: string };
+  const videoJobs = new Map<string, VideoJob>();
+  const reveal = (file: string) => {
+    const cmd = process.platform === "darwin" ? ["open", "-R", file] : process.platform === "win32" ? ["explorer", `/select,${file}`] : ["xdg-open", file.replace(/[^/]+$/, "")];
+    try {
+      Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
+    } catch {}
+  };
+  function startVideo(dir: string): VideoJob {
+    const lessonFile = `${dir}/lesson.json`;
+    let title = "lesson";
+    try {
+      title = String(JSON.parse(require("node:fs").readFileSync(lessonFile, "utf8")).title || title);
+    } catch {}
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "lesson";
+    const file = `${homedir()}/Downloads/${slug}.mp4`;
+    const fs = require("node:fs");
+    // Already made from this exact lesson and voice: hand it straight back.
+    try {
+      const made = fs.statSync(file).mtimeMs;
+      const inputs = [lessonFile, `${dir}/lesson.mp3`].filter((f) => fs.existsSync(f)).map((f) => fs.statSync(f).mtimeMs);
+      if (inputs.every((t: number) => t < made)) {
+        const done: VideoJob = { state: "done", file };
+        videoJobs.set(dir, done);
+        reveal(file);
+        return done;
+      }
+    } catch {}
+    const job: VideoJob = { state: "rendering", file };
+    videoJobs.set(dir, job);
+    const proc = Bun.spawn(["bun", fileURLToPath(new URL("./video.ts", import.meta.url)), dir, "--out", file], { stdout: "pipe", stderr: "pipe" });
+    (async () => {
+      const decoder = new TextDecoder();
+      let tail = "";
+      for await (const chunk of proc.stdout) {
+        tail += decoder.decode(chunk);
+        const left = [...tail.matchAll(/(\d+)s left/g)].pop();
+        const total = /recording (\d+)s/.exec(tail);
+        if (left) job.left = Number(left[1]);
+        else if (total) job.left = Number(total[1]);
+      }
+      const code = await proc.exited;
+      if (code === 0) {
+        job.state = "done";
+        job.left = 0;
+        reveal(file);
+      } else {
+        job.state = "failed";
+        job.error = (await new Response(proc.stderr).text()).trim().slice(0, 300) || "video render failed";
+      }
+    })();
+    return job;
+  }
   const timings: Array<{ note: number; posted: number; started: number }> = [];
   let recentSeq = 0;
   let blocked = await readList(BLOCKED_FILE);
@@ -368,6 +421,17 @@ async function serve(): Promise<void> {
         if (req.method === "GET" && pathname === "/status") return json(report(asked, tab), 200, headers);
         // The page says when the first step actually started drawing; that is the only number that
         // matters to a person waiting.
+        // Save the lesson as a video: render it with video.ts into ~/Downloads, then show it.
+        if (pathname === "/lesson/video") {
+          const wanted = url.searchParams.get("recent");
+          const fromRecent = wanted ? recent.find((r) => r.id === wanted) : null;
+          const dir = fromRecent ? fromRecent.dir : pick(asked)?.lessonDir;
+          if (!dir) return json({ state: "none", error: "no lesson to save" }, 404, headers);
+          const job = videoJobs.get(dir);
+          if (req.method === "GET") return json(job ?? { state: "idle" }, 200, headers);
+          if (job && job.state === "rendering") return json(job, 200, headers);
+          return json(startVideo(dir), 200, headers);
+        }
         if (req.method === "POST" && pathname === "/lesson/started") {
           const s = pick(asked);
           if (s) {
