@@ -1012,6 +1012,18 @@
 
   let audio = null;
   let noise = null;
+  // Every drawing sound plays through a bus for its board (or "marks" for page highlights), so a
+  // pause, a skip or a redraw can silence what is already scheduled by cutting the bus.
+  const buses = new Map();
+  const bus = (c, scope) => {
+    let node = buses.get(scope);
+    if (!node) {
+      node = c.createGain();
+      node.connect(c.destination);
+      buses.set(scope, node);
+    }
+    return node;
+  };
   const soundOn = () => {
     try {
       return global.localStorage.getItem("chalktalkSound") !== "off";
@@ -1039,7 +1051,7 @@
     return audio;
   }
   const sound = {
-    scratch(delay, duration, kind = "pen") {
+    scratch(delay, duration, kind = "pen", scope = kind === "marker" ? "marks" : "board") {
       const c = mixer();
       if (!c || !(duration > 0.05)) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1065,14 +1077,14 @@
       const depth = c.createGain();
       depth.gain.value = level * 0.45;
       wobble.connect(depth).connect(gain.gain);
-      src.connect(low).connect(band).connect(gain).connect(c.destination);
+      src.connect(low).connect(band).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random() * 1.5);
       src.stop(t1 + 0.05);
       wobble.start(t0);
       wobble.stop(t1 + 0.05);
-      sound.flick(t1 - c.currentTime);
+      sound.flick(t1 - c.currentTime, scope);
     },
-    flick(delay) {
+    flick(delay, scope = "board") {
       const c = mixer();
       if (!c) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1085,11 +1097,11 @@
       const gain = c.createGain();
       gain.gain.setValueAtTime(0.05, t0);
       gain.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.07);
-      src.connect(band).connect(gain).connect(c.destination);
+      src.connect(band).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random());
       src.stop(t0 + 0.08);
     },
-    wipe(delay) {
+    wipe(delay, scope = "board") {
       const c = mixer();
       if (!c) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1104,11 +1116,11 @@
       gain.gain.setValueAtTime(0, t0);
       gain.gain.linearRampToValueAtTime(0.07, t0 + 0.08);
       gain.gain.linearRampToValueAtTime(0, t0 + 0.36);
-      src.connect(band).connect(gain).connect(c.destination);
+      src.connect(band).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random());
       src.stop(t0 + 0.4);
     },
-    thump(delay) {
+    thump(delay, scope = "board") {
       const c = mixer();
       if (!c) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1120,9 +1132,20 @@
       const gain = c.createGain();
       gain.gain.setValueAtTime(0.16, t0);
       gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
-      src.connect(lowpass).connect(gain).connect(c.destination);
+      src.connect(lowpass).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random());
       src.stop(t0 + 0.14);
+    },
+    // Silence everything already scheduled on one bus, or on all of them.
+    stop(scope) {
+      for (const [key, node] of [...buses]) {
+        if (scope && key !== scope) continue;
+        try {
+          node.gain.cancelScheduledValues(0);
+          node.disconnect();
+        } catch {}
+        buses.delete(key);
+      }
     },
   };
 
@@ -1217,6 +1240,59 @@
     (scene.steps || []).forEach((step) => (step.items = (step.items || []).filter((it) => !it.drop)));
   }
 
+  // A row redrawn in a later step (a spine that grows) keeps every card in a fixed slot, sized
+  // for the longest version of that row, and only draws the cards and arrows that are new or
+  // changed. Without this, a 2-card row and a 4-card row at the same spot stack on each other.
+  function expandRows(scene) {
+    const steps = scene.steps || [];
+    const segs = [];
+    let seg = 0;
+    steps.forEach((step, i) => {
+      if (step.clear && i) seg++;
+      segs.push(seg);
+    });
+    const keyOf = (it, s) => `${s}|${it.x}|${it.y}|${it.w}`;
+    const slots = {};
+    steps.forEach((step, i) =>
+      (step.items || []).forEach((it) => {
+        if (it && it.type === "row" && Array.isArray(it.items)) slots[keyOf(it, segs[i])] = Math.max(slots[keyOf(it, segs[i])] || 0, it.items.length);
+      }),
+    );
+    const drawn = new Map();
+    steps.forEach((step, i) => {
+      if (step.clear && i) drawn.clear();
+      step.items = (step.items || []).flatMap((it) => {
+        if (!it || it.type !== "row" || !Array.isArray(it.items) || !it.items.length) return [it];
+        const n = slots[keyOf(it, segs[i])] || it.items.length;
+        const gap = it.gap ?? 16;
+        const h = it.h || 58;
+        const bw = (it.w - gap * (n - 1)) / n;
+        const out = [];
+        it.items.forEach((cell, k) => {
+          const x = it.x + k * (bw + gap);
+          const box = { ...cell, type: "box", x, y: it.y, w: bw, h, on: cell.on ?? it.on, at: it.at, look: cell.look ?? it.look };
+          delete box.arrow;
+          const id = `box|${x.toFixed(1)}|${it.y}`;
+          const sig = JSON.stringify([box.label, box.sub, box.color, box.brand]);
+          if (drawn.get(id) !== sig) {
+            drawn.set(id, sig);
+            out.push({ ...box, keep: true });
+          }
+          if (k > 0) {
+            const aid = `arrow|${x.toFixed(1)}|${it.y}`;
+            const asig = String(cell.arrow || it.arrow || "");
+            if (drawn.get(aid) !== asig) {
+              drawn.set(aid, asig);
+              const from = x - gap;
+              out.push({ type: "arrow", from: [from, it.y + h / 2], to: [x, it.y + h / 2], color: cell.arrow || it.arrow, on: box.on, at: it.at });
+            }
+          }
+        });
+        return out;
+      });
+    });
+  }
+
   function layout(scene, W, H) {
     const items = (scene.steps || []).flatMap((s) => s.items || []);
     const ends = items.flatMap((it) =>
@@ -1226,7 +1302,9 @@
     const gap = 10;
     let placed = [];
     const all = [];
-    const hit = (r) => placed.find((p) => r.x < p.x + p.w + gap && p.x < r.x + r.w + gap && r.y < p.y + p.h + gap && p.y < r.y + r.h + gap);
+    const inside = (a, b) => a.x >= b.x - 2 && a.y >= b.y - 2 && a.x + a.w <= b.x + b.w + 2 && a.y + a.h <= b.y + b.h + 2;
+    // A box drawn inside another (builds inside a machine, a step inside a phase) is nesting, not a collision.
+    const hit = (r) => placed.find((p) => !inside(r, p) && !inside(p, r) && r.x < p.x + p.w + gap && p.x < r.x + r.w + gap && r.y < p.y + p.h + gap && p.y < r.y + r.h + gap);
     (scene.steps || []).forEach((step) => {
       if (step.clear) placed = [];
       (step.items || []).forEach((it) => place(it));
@@ -1273,6 +1351,7 @@
     if (scene.three || global.CHALKTALK_THREE) svg.dataset.three = scene.three || global.CHALKTALK_THREE;
     svg.style.display = "block";
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
+    expandRows(scene);
     dedupe(scene);
     svg.__boxes = layout(scene, W, H);
     svg.__plan = [];
@@ -1340,6 +1419,7 @@
         }
       });
 
+    const scope = `board-${Math.random().toString(36).slice(2, 8)}`;
     const reveal = (i, animate, stretch = 1) => {
       let t = 0;
       steps[i].forEach(({ node, kind, at, rise, to }) => {
@@ -1347,19 +1427,19 @@
         if (kind === "zoom") {
           node.style.transition = animate ? `transform 1.6s cubic-bezier(.45,0,.2,1) ${t}s` : "none";
           node.style.transform = to;
-          if (animate && scene.sound !== false) sound.wipe(t);
+          if (animate && scene.sound !== false) sound.wipe(t, scope);
           if (animate) t += 1.3;
         } else if (kind === "fade") {
           node.style.transition = animate ? `opacity .45s ease ${t}s, transform .55s cubic-bezier(.22,1,.36,1) ${t}s` : "none";
           node.style.opacity = 1;
           if (rise) node.style.transform = "none";
-          if (animate && rise && scene.sound !== false) sound.thump(t);
+          if (animate && rise && scene.sound !== false) sound.thump(t, scope);
           if (animate) t += 0.04 * stretch;
         } else {
           const d = Math.min(0.9, Math.max(0.2, node.getTotalLength() / 700));
           node.style.transition = animate ? `stroke-dashoffset ${d}s ease-in-out ${t}s` : "none";
           node.style.strokeDashoffset = 0;
-          if (animate && scene.sound !== false) sound.scratch(t, d);
+          if (animate && scene.sound !== false) sound.scratch(t, d, "pen", scope);
           if (animate) t += d * 0.85 * stretch;
         }
       });
@@ -1368,6 +1448,8 @@
 
     function go(i, stretch = 1) {
       clearTimeout(timer);
+      // a new draw (next, back, or the same step re-timed to the voice) replaces the old sounds
+      sound.stop(scope);
       if (voice) voice.cancel();
       if (clip) clip.pause();
       if (!steps.length) return;
@@ -1386,7 +1468,7 @@
       for (let k = start; k < current; k++) reveal(k, false);
       const step = scene.steps[current];
       if (step.clear && current === before + 1 && !still) {
-        if (scene.sound !== false) sound.wipe(0);
+        if (scene.sound !== false) sound.wipe(0, scope);
         svg.style.transition = "none";
         svg.style.opacity = "0";
         svg.getBoundingClientRect();

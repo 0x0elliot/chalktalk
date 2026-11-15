@@ -622,6 +622,11 @@ async function send(dir: string): Promise<void> {
   const script = (name: string) => fileURLToPath(new URL(`./${name}`, import.meta.url));
   const check = Bun.spawn(["bun", script("check.ts"), dir], { stdout: "inherit", stderr: "inherit" });
   await check.exited;
+  // The board the user sees, not the coordinates as written: overlaps and moved items stop the send.
+  const render = Bun.spawn(["bun", script("render-check.ts"), dir], { stdout: "inherit", stderr: "inherit" });
+  if ((await render.exited) !== 0 && !rest.includes("--force")) {
+    fail("not sent: fix the overlaps above (bun render-check.ts <dir> --png draws each step), or send again with --force");
+  }
   const stream = rest.includes("--stream");
   const narrate = Bun.spawn(
     ["bun", script("narrate.ts"), dir, ...(stream ? ["--per-step"] : [])],

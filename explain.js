@@ -1079,8 +1079,10 @@
     function togglePause() {
       paused = !paused;
       pause.textContent = paused ? "Play" : "Pause";
-      if (paused) stopVoice();
-      else if (timeline && track) {
+      if (paused) {
+        stopVoice();
+        if (window.Chalktalk && window.Chalktalk.sound && window.Chalktalk.sound.stop) window.Chalktalk.sound.stop();
+      } else if (timeline && track) {
         track.play().catch(() => {});
         followTrack();
       } else go(current);
@@ -1108,6 +1110,7 @@
       token++;
       clearTimeout(fadeTimer);
       stopVoice();
+      if (window.Chalktalk && window.Chalktalk.sound && window.Chalktalk.sound.stop) window.Chalktalk.sound.stop();
       clearTimeout(lightTimer);
       clearInterval(waitTimer);
       window.removeEventListener("scroll", redraw, { capture: true });

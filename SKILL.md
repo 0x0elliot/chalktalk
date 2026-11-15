@@ -410,6 +410,17 @@ each other, timeline marks stacked on one side, a cue that isn't in that step's 
 no room for its labels. It takes about 20 ms, so run it instead of rendering. Draw a picture only when
 the layout is unusual (a map, a 3D figure, a photo), and then once.
 
+**Check what the user will actually see.** `check.ts` reads the coordinates you wrote; the engine then
+nudges boxes that collide, slides text out of the way and grows rows. `bun <skill-dir>/render-check.ts <dir>`
+draws every step with the real engine in headless Chrome and measures the result: anything the engine
+moved, anything that lands on something else, anything off the board. `send` and `ship` run it and
+refuse to post a lesson that fails (`--force` overrides; don't). `--png` writes `step-N.png` per step for a
+look by eye. When it flags something, move the item to free space; never paper over it with `--force`.
+
+A row redrawn with more cards in a later step (a growing spine) keeps every card in a fixed slot, sized
+for its longest version, and only the new cards draw. Boxes drawn inside a bigger box stay where you put
+them.
+
 **A missing voice is not a missing answer.** If narration fails (no key, an expired token, no network),
 still post the lesson: the page falls back to the system voice. `send` does this on its own now, so never
 abandon a lesson because the recording failed — tell the user which voice they are hearing instead.
