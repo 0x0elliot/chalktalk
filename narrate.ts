@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 
@@ -246,9 +247,28 @@ const stamp = new Bun.CryptoHasher("sha1")
   .update([flag("engine") ?? config.voice ?? "kokoro", flag("voice") ?? config.elevenlabsVoice ?? "", ...says].join("\u0000"))
   .digest("hex");
 const stampFile = Bun.file(`${dir}/.narration`);
+// The timings live beside the recording, not only in lesson.json, so a lesson file that is
+// rewritten (a board edit from a script, a regenerated lesson) gets its cues back for free.
+const timingFile = Bun.file(`${dir}/.narration.json`);
+type Timing = { stamp: string; file: string; voice: string; seconds: number; timeline: number[]; chars: number[][] };
 if ((await Bun.file(`${dir}/lesson.mp3`).exists()) && (await stampFile.exists()) && (await stampFile.text()).trim() === stamp) {
-  process.stdout.write("words unchanged, reusing the existing voice and timings\n");
-  process.exit(0);
+  const saved = (await timingFile.exists()) ? ((await timingFile.json().catch(() => null)) as Timing | null) : null;
+  if (saved && saved.stamp === stamp) {
+    spoken = {
+      file: saved.file,
+      timeline: saved.timeline,
+      seconds: saved.seconds,
+      cueTime: (step, c) => saved.chars[step]?.[Math.min(c, saved.chars[step].length - 1)] ?? 0,
+    };
+    const missingCues = applyCues(saved.voice);
+    process.stdout.write(`words unchanged, reusing the existing voice and timings${missingCues}\n`);
+    process.exit(0);
+  }
+  if (lesson.timeline && lesson.audio) {
+    process.stdout.write("words unchanged, reusing the existing voice and timings\n");
+    process.exit(0);
+  }
+  process.stdout.write("words unchanged but the timings were lost with the old lesson file; recording again\n");
 }
 
 let used = wanted;
@@ -261,26 +281,42 @@ try {
   spoken = used === "elevenlabs" ? await withElevenLabs() : await withKokoro();
 }
 
-const missing: string[] = [];
-steps.forEach((step, i) => {
-  delete step.audio;
-  const said = says[i].toLowerCase();
-  for (const cue of [...(step.board ?? []), ...(step.board2 ?? []), ...(step.highlight ?? [])]) {
-    if (!cue.on) continue;
-    const found = said.indexOf(cue.on.toLowerCase());
-    if (found < 0) {
-      missing.push(`step ${i + 1}: "${cue.on}"`);
-      continue;
-    }
-    cue.at = Math.max(0, Math.round(spoken.cueTime(i, found) * 100) / 100);
-  }
-});
-lesson.audio = spoken.file;
-lesson.voice = used;
-lesson.timeline = spoken.timeline.map((t) => Math.round(t * 100) / 100);
-await Bun.write(`${dir}/lesson.json`, JSON.stringify(lesson, null, 2));
+const missingNote = applyCues(used);
+const round = (t: number) => Math.round(t * 100) / 100;
+await Bun.write(
+  `${dir}/.narration.json`,
+  JSON.stringify({
+    stamp,
+    file: spoken.file,
+    voice: used,
+    seconds: spoken.seconds,
+    timeline: spoken.timeline.map(round),
+    chars: says.map((words, i) => Array.from({ length: words.length + 1 }, (_, c) => round(spoken.cueTime(i, c)))),
+  }),
+);
 await Bun.write(stampFile, stamp);
 process.stdout.write(
-  `wrote one ${Math.round(spoken.seconds)}s narration with ${used} and ${steps.length} cues to ${dir}${used === "elevenlabs" ? `, ${says.join(" ").length} ElevenLabs characters used` : ", free"}\n`,
+  `wrote one ${Math.round(spoken.seconds)}s narration with ${used} and ${steps.length} cues to ${dir}${used === "elevenlabs" ? `, ${says.join(" ").length} ElevenLabs characters used` : ", free"}${missingNote}\n`,
 );
-if (missing.length) process.stdout.write(`phrases not found in their step's say, drawn without timing: ${missing.join("; ")}\n`);
+
+function applyCues(voice: string): string {
+  const missing: string[] = [];
+  steps.forEach((step, i) => {
+    delete step.audio;
+    const said = says[i].toLowerCase();
+    for (const cue of [...(step.board ?? []), ...(step.board2 ?? []), ...(step.highlight ?? [])]) {
+      if (!cue.on) continue;
+      const found = said.indexOf(cue.on.toLowerCase());
+      if (found < 0) {
+        missing.push(`step ${i + 1}: "${cue.on}"`);
+        continue;
+      }
+      cue.at = Math.max(0, Math.round(spoken.cueTime(i, found) * 100) / 100);
+    }
+  });
+  lesson.audio = spoken.file;
+  lesson.voice = voice;
+  lesson.timeline = spoken.timeline.map((t) => Math.round(t * 100) / 100);
+  writeFileSync(`${dir}/lesson.json`, JSON.stringify(lesson, null, 2));
+  return missing.length ? `\nphrases not found in their step's say, drawn without timing: ${missing.join("; ")}` : "";
+}

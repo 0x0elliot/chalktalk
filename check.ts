@@ -121,6 +121,19 @@ steps.reduce((s, step, i) => {
   plan[at] = (plan[at] || []).concat([...(step.board || []), ...(step.board2 || [])].map(footprintOf).filter(Boolean));
   return at;
 }, 0);
+// What an arrow may name on each board: every id and label drawn there, in any step before the next clear.
+const nameKey = (v: any) => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+const names: Set<string>[] = [];
+steps.reduce((s, step, i) => {
+  const at = step.clear && i ? s + 1 : s;
+  names[at] = names[at] || new Set();
+  [...(step.board || []), ...(step.board2 || [])].forEach((it: any) =>
+    [it, ...(it.type === "row" && Array.isArray(it.items) ? it.items : [])].forEach((x: any) =>
+      [x.id, x.label, x.text].forEach((v) => v != null && v !== "" && names[at].add(nameKey(v))),
+    ),
+  );
+  return at;
+}, 0);
 let seg = 0;
 function placeOn(line, id, e, n) {
   if (e.side != null && !sideOf(e.side)) warn(n, `event "${e.label}": side "${e.side}" is not above or below`);
@@ -210,6 +223,16 @@ steps.forEach((step, i) => {
     }
 
     // Cues that point at words the step never says.
+    if (it.type === "arrow" && it.labelAt != null) {
+      const ok = (typeof it.labelAt === "number" && it.labelAt >= 0 && it.labelAt <= 1) || (Array.isArray(it.labelAt) && it.labelAt.length >= 2 && it.labelAt.slice(0, 2).every(Number.isFinite));
+      if (!ok) warn(n, `arrow "${it.label ?? ""}": labelAt must be [x, y] or a number from 0 to 1, not ${JSON.stringify(it.labelAt)}`);
+    }
+    if (it.type === "arrow")
+      for (const [end, v] of [["from", it.from], ["to", it.to]] as const) {
+        if (typeof v === "string") {
+          if (!(names[seg] || new Set()).has(nameKey(v))) warn(n, `arrow ${end} "${v}" names nothing on this board; use an item's id or exact label`);
+        } else if (!Array.isArray(v) || !v.slice(0, 2).every(Number.isFinite)) warn(n, `arrow "${it.label ?? ""}" needs ${end}: an item's id or [x, y]`);
+      }
     if (it.on && !String(step.say || "").includes(it.on)) warn(n, `cue "${it.on}" is not in this step's say`);
   });
 

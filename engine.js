@@ -359,12 +359,8 @@
     });
     if (opts.maxWidth) {
       let size = opts.size || 20;
-      try {
-        while (size > 11 && t.getComputedTextLength() > opts.maxWidth) {
-          size -= 1;
-          t.setAttribute("font-size", size);
-        }
-      } catch {}
+      while (size > (opts.minSize || 14) && measure(opts.text, size, opts.mono) > opts.maxWidth) size -= 1;
+      t.setAttribute("font-size", size);
     }
     if (opts.clamp !== false) keepInside(t, lines, opts.size || 20);
     return t;
@@ -372,6 +368,164 @@
 
   // Patrick Hand averages about half its size per character; check.ts uses the same estimate.
   const textWidth = (text, size) => Math.max(0, ...String(text).split("\n").map((l) => l.length)) * size * 0.52;
+
+  // Measured on a canvas, not the page: boards are built while their panel is still hidden, and a
+  // hidden SVG reports every text as zero wide. Before the font loads, the fallback is wider, so a
+  // fit made early errs on the small side.
+  let measureCtx = null;
+  function measure(text, size, mono) {
+    const lines = String(text ?? "").split("\n");
+    try {
+      measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
+      measureCtx.font = `${size}px ${mono ? MONO : HAND}`;
+      return Math.max(0, ...lines.map((l) => measureCtx.measureText(l).width));
+    } catch {
+      return textWidth(text, size);
+    }
+  }
+
+  // Splits a label into two lines at the most even break: a space, a camelCase hump, or after _ . / - (
+  function splitTwo(text) {
+    const s = String(text);
+    let best = null;
+    for (let i = 1; i < s.length; i++) {
+      const a = s[i - 1];
+      const b = s[i];
+      const ok = a === " " || /[_./(-]/.test(a) || (/[a-z0-9]/.test(a) && /[A-Z]/.test(b));
+      if (!ok) continue;
+      const left = s.slice(0, i).trimEnd();
+      const right = s.slice(i).trimStart();
+      if (!left || !right) continue;
+      const score = Math.max(left.length, right.length);
+      if (!best || score < best.score) best = { score, lines: [left, right] };
+    }
+    return best && best.lines;
+  }
+
+  const LABEL_MIN = 15;
+  const SUB_MIN = 12;
+  const SUB_GAP = 4;
+
+  // Every box's text fits inside the box, decided before anything is drawn: shrink to a readable
+  // floor, then break onto two lines, then make the box bigger around its own centre. A card in a
+  // row keeps its width (its neighbours sit right beside it) and only grows taller.
+  function fitBoxes(scene) {
+    (scene.steps || []).forEach((step) =>
+      (step.items || []).forEach((it) => {
+        if (!it || it.type !== "box" || ![it.x, it.y, it.w, it.h].every(Number.isFinite)) return;
+        const room = () => it.w - 20 - (it.brand ? 32 : 0);
+        const fit = (text, size, min) => {
+          if (text === undefined || text === null || text === "") return null;
+          let lines = String(text).split("\n");
+          const widest = (s) => Math.max(...lines.map((l) => measure(l, s)));
+          let s = size;
+          while (s > min && widest(s) > room()) s--;
+          if (widest(s) > room() && lines.length === 1) {
+            const two = splitTwo(lines[0]);
+            if (two) {
+              lines = two;
+              s = size;
+              while (s > min && widest(s) > room()) s--;
+            }
+          }
+          return { lines, size: s, w: widest(s), h: lines.length * s * 1.15 };
+        };
+        const label = fit(it.label, it.size || 22, LABEL_MIN);
+        const sub = fit(it.sub, it.subSize || 16, SUB_MIN);
+        const needW = Math.max(label ? label.w : 0, sub ? sub.w : 0) + 20 + (it.brand ? 32 : 0);
+        if (needW > it.w && !it.__row) {
+          it.x -= (needW - it.w) / 2;
+          it.w = needW;
+        }
+        const needH = (label ? label.h : 0) + (sub ? SUB_GAP + sub.h : 0) + 14;
+        if (needH > it.h) {
+          it.y -= (needH - it.h) / 2;
+          it.h = needH;
+        }
+        if (label) {
+          it.label = label.lines.join("\n");
+          it.size = label.size;
+        }
+        if (sub) {
+          it.sub = sub.lines.join("\n");
+          it.subSize = sub.size;
+        }
+      }),
+    );
+  }
+
+  // Arrows join things. An end can name an item ("from": "parse", matched on its id, then its
+  // label); a coordinate end within reach of a shape is pulled onto that shape's edge. An end
+  // left in empty paper is marked, so the render check can refuse the lesson.
+  const SNAP = 48;
+  function anchorArrows(scene) {
+    const groups = [];
+    (scene.steps || []).forEach((step, i) => {
+      if (!groups.length || (step.clear && i)) groups.push([]);
+      groups[groups.length - 1].push(...(step.items || []));
+    });
+    groups.forEach((items) => {
+      const shapes = items
+        .filter((it) => it && !["arrow", "line", "ring", "underline", "event", "zoom", "region", "pin", "route"].includes(it.type))
+        .map((it) => ({ it, r: footprintOf(it) }))
+        .filter((s) => s.r);
+      const key = (v) => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+      const byRef = (ref) => shapes.find((s) => s.it.id !== undefined && key(s.it.id) === key(ref)) || shapes.find((s) => key(s.it.label ?? s.it.text) === key(ref));
+      const centre = (r) => [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
+      const gap = 3;
+      const toward = (r, [tx, ty]) => {
+        const [cx, cy] = centre(r);
+        const dx = tx - cx;
+        const dy = ty - cy;
+        const hw = (r.x1 - r.x0) / 2 + gap;
+        const hh = (r.y1 - r.y0) / 2 + gap;
+        const k = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
+        return Number.isFinite(k) ? [cx + dx * k, cy + dy * k] : [cx, cy];
+      };
+      const away = (r, [px, py]) => Math.hypot(Math.max(r.x0 - px, 0, px - r.x1), Math.max(r.y0 - py, 0, py - r.y1));
+      const onto = (r, [px, py]) => {
+        const x = Math.min(Math.max(px, r.x0), r.x1);
+        const y = Math.min(Math.max(py, r.y0), r.y1);
+        const d = Math.hypot(px - x, py - y) || 1;
+        return [x + ((px - x) / d) * gap, y + ((py - y) / d) * gap];
+      };
+      items.forEach((it) => {
+        if (!it || it.type !== "arrow") return;
+        const named = (end) => (typeof end === "string" ? byRef(end) : null);
+        const a = named(it.from);
+        const b = named(it.to);
+        if ((typeof it.from === "string" && !a) || (typeof it.to === "string" && !b)) {
+          it.drop = true;
+          console.error(`chalktalk: arrow from "${it.from}" to "${it.to}" names something that isn't on the board`);
+          return;
+        }
+        const pa = a ? centre(a.r) : it.from;
+        const pb = b ? centre(b.r) : it.to;
+        if (!Array.isArray(pa) || !Array.isArray(pb)) return;
+        const end = (p, named, other, otherShape) => {
+          if (named) return { p: toward(named.r, other), loose: false };
+          const near = shapes
+            .filter((s) => s !== otherShape)
+            .map((s) => ({ s, d: away(s.r, p) }))
+            .sort((x, y) => x.d - y.d)[0];
+          if (near && near.d === 0) return { p, loose: false };
+          if (near && near.d <= SNAP) return { p: onto(near.s.r, p), loose: false };
+          return { p, loose: true };
+        };
+        const from = end(pa, a, pb, b);
+        const to = end(pb, b, from.p, a);
+        it.from = from.p;
+        it.to = to.p;
+        if (from.loose || to.loose) {
+          it.loose = [from.loose && "start", to.loose && "end"].filter(Boolean).join(" and ");
+          it.drop = true;
+          console.error(`chalktalk: arrow ${JSON.stringify(it.from)} to ${JSON.stringify(it.to)} has its ${it.loose} in empty space, so it is not drawn`);
+        }
+      });
+      items.forEach((it) => it && it.drop && (it.dropped = true));
+    });
+    (scene.steps || []).forEach((step) => (step.items = (step.items || []).filter((it) => !(it && it.dropped))));
+  }
   const BOARD_PAD = 6;
 
   // No text ever leaves the board: shrink what is wider than the board, then slide it back inside.
@@ -661,8 +815,13 @@
         const shift = it.brand ? 16 : 0;
         if (it.brand) fade(logo(g, it.brand, x + 10, y + h / 2 - 13, 26));
         const room = w - 20 - shift * 2;
-        if (it.label) label(it.label, x + w / 2 + shift, y + h / 2 - (it.sub ? 11 : 0), { size: it.size || 22, maxWidth: room });
-        if (it.sub) label(it.sub, x + w / 2 + shift, y + h / 2 + 15, { size: 16, color: it.subColor || "gray", maxWidth: room });
+        const ls = it.size || 22;
+        const ss = it.subSize || 16;
+        const lh = it.label ? String(it.label).split("\n").length * ls * 1.15 : 0;
+        const sh = it.sub ? String(it.sub).split("\n").length * ss * 1.15 : 0;
+        const top = y + h / 2 - (lh + (it.label && it.sub ? SUB_GAP : 0) + sh) / 2;
+        if (it.label) label(it.label, x + w / 2 + shift, top + lh / 2, { size: ls, maxWidth: room, minSize: LABEL_MIN });
+        if (it.sub) label(it.sub, x + w / 2 + shift, top + lh + (it.label ? SUB_GAP : 0) + sh / 2, { size: ss, color: it.subColor || "gray", maxWidth: room, minSize: SUB_MIN });
         break;
       }
       case "logo": {
@@ -728,7 +887,12 @@
             const x0 = anchor === "start" ? x : anchor === "end" ? x - tw : x - tw / 2;
             return !(svg.__boxes || []).some((r) => x0 < r.x + r.w && r.x < x0 + tw && y - 11 < r.y + r.h && r.y < y + 11);
           };
-          const [lx, ly, anchor] = it.labelAt ? [...it.labelAt] : spots.find(clear) || spots[0];
+          // labelAt is a point [x, y, anchor?], or a number: how far along the arrow, 0 to 1.
+          const along = typeof it.labelAt === "number" && it.labelAt >= 0 && it.labelAt <= 1 ? it.labelAt : null;
+          const at = Array.isArray(it.labelAt) && it.labelAt.length >= 2 ? [...it.labelAt]
+            : along !== null ? [it.from[0] + (it.to[0] - it.from[0]) * along + (upright ? 12 : 0), it.from[1] + (it.to[1] - it.from[1]) * along - (upright ? 0 : 18), upright ? "start" : undefined]
+            : null;
+          const [lx, ly, anchor] = at || spots.find(clear) || spots[0];
           const t = write(g, { color: it.color, text: it.label, size: 18, halo: true, anchor }, lx, ly);
           dodge(t, g);
           fade(t);
@@ -1007,6 +1171,18 @@
 
   let audio = null;
   let noise = null;
+  // Every drawing sound plays through a bus for its board (or "marks" for page highlights), so a
+  // pause, a skip or a redraw can silence what is already scheduled by cutting the bus.
+  const buses = new Map();
+  const bus = (c, scope) => {
+    let node = buses.get(scope);
+    if (!node) {
+      node = c.createGain();
+      node.connect(c.destination);
+      buses.set(scope, node);
+    }
+    return node;
+  };
   const soundOn = () => {
     try {
       return global.localStorage.getItem("chalktalkSound") !== "off";
@@ -1034,7 +1210,7 @@
     return audio;
   }
   const sound = {
-    scratch(delay, duration, kind = "pen") {
+    scratch(delay, duration, kind = "pen", scope = kind === "marker" ? "marks" : "board") {
       const c = mixer();
       if (!c || !(duration > 0.05)) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1060,14 +1236,14 @@
       const depth = c.createGain();
       depth.gain.value = level * 0.45;
       wobble.connect(depth).connect(gain.gain);
-      src.connect(low).connect(band).connect(gain).connect(c.destination);
+      src.connect(low).connect(band).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random() * 1.5);
       src.stop(t1 + 0.05);
       wobble.start(t0);
       wobble.stop(t1 + 0.05);
-      sound.flick(t1 - c.currentTime);
+      sound.flick(t1 - c.currentTime, scope);
     },
-    flick(delay) {
+    flick(delay, scope = "board") {
       const c = mixer();
       if (!c) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1080,11 +1256,11 @@
       const gain = c.createGain();
       gain.gain.setValueAtTime(0.05, t0);
       gain.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.07);
-      src.connect(band).connect(gain).connect(c.destination);
+      src.connect(band).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random());
       src.stop(t0 + 0.08);
     },
-    wipe(delay) {
+    wipe(delay, scope = "board") {
       const c = mixer();
       if (!c) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1099,11 +1275,11 @@
       gain.gain.setValueAtTime(0, t0);
       gain.gain.linearRampToValueAtTime(0.07, t0 + 0.08);
       gain.gain.linearRampToValueAtTime(0, t0 + 0.36);
-      src.connect(band).connect(gain).connect(c.destination);
+      src.connect(band).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random());
       src.stop(t0 + 0.4);
     },
-    thump(delay) {
+    thump(delay, scope = "board") {
       const c = mixer();
       if (!c) return;
       const t0 = c.currentTime + Math.max(0, delay);
@@ -1115,9 +1291,20 @@
       const gain = c.createGain();
       gain.gain.setValueAtTime(0.16, t0);
       gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
-      src.connect(lowpass).connect(gain).connect(c.destination);
+      src.connect(lowpass).connect(gain).connect(bus(c, scope));
       src.start(t0, Math.random());
       src.stop(t0 + 0.14);
+    },
+    // Silence everything already scheduled on one bus, or on all of them.
+    stop(scope) {
+      for (const [key, node] of [...buses]) {
+        if (scope && key !== scope) continue;
+        try {
+          node.gain.cancelScheduledValues(0);
+          node.disconnect();
+        } catch {}
+        buses.delete(key);
+      }
     },
   };
 
@@ -1212,6 +1399,60 @@
     (scene.steps || []).forEach((step) => (step.items = (step.items || []).filter((it) => !it.drop)));
   }
 
+  // A row redrawn in a later step (a spine that grows) keeps every card in a fixed slot, sized
+  // for the longest version of that row, and only draws the cards and arrows that are new or
+  // changed. Without this, a 2-card row and a 4-card row at the same spot stack on each other.
+  function expandRows(scene) {
+    const steps = scene.steps || [];
+    const segs = [];
+    let seg = 0;
+    steps.forEach((step, i) => {
+      if (step.clear && i) seg++;
+      segs.push(seg);
+    });
+    const keyOf = (it, s) => `${s}|${it.x}|${it.y}|${it.w}`;
+    const slots = {};
+    steps.forEach((step, i) =>
+      (step.items || []).forEach((it) => {
+        // slots are counted across the whole lesson, so a spine redrawn after a clear keeps its card sizes
+        if (it && it.type === "row" && Array.isArray(it.items)) slots[keyOf(it, 0)] = Math.max(slots[keyOf(it, 0)] || 0, it.items.length);
+      }),
+    );
+    const drawn = new Map();
+    steps.forEach((step, i) => {
+      if (step.clear && i) drawn.clear();
+      step.items = (step.items || []).flatMap((it) => {
+        if (!it || it.type !== "row" || !Array.isArray(it.items) || !it.items.length) return [it];
+        const n = slots[keyOf(it, 0)] || it.items.length;
+        const gap = it.gap ?? 16;
+        const h = it.h || 58;
+        const bw = (it.w - gap * (n - 1)) / n;
+        const out = [];
+        it.items.forEach((cell, k) => {
+          const x = it.x + k * (bw + gap);
+          const box = { ...cell, type: "box", x, y: it.y, w: bw, h, on: cell.on ?? it.on, at: it.at, look: cell.look ?? it.look, __row: true };
+          delete box.arrow;
+          const id = `box|${x.toFixed(1)}|${it.y}`;
+          const sig = JSON.stringify([box.label, box.sub, box.color, box.brand]);
+          if (drawn.get(id) !== sig) {
+            drawn.set(id, sig);
+            out.push({ ...box, keep: true });
+          }
+          if (k > 0) {
+            const aid = `arrow|${x.toFixed(1)}|${it.y}`;
+            const asig = String(cell.arrow || it.arrow || "");
+            if (drawn.get(aid) !== asig) {
+              drawn.set(aid, asig);
+              const from = x - gap;
+              out.push({ type: "arrow", from: [from, it.y + h / 2], to: [x, it.y + h / 2], color: cell.arrow || it.arrow, on: box.on, at: it.at });
+            }
+          }
+        });
+        return out;
+      });
+    });
+  }
+
   function layout(scene, W, H) {
     const items = (scene.steps || []).flatMap((s) => s.items || []);
     const ends = items.flatMap((it) =>
@@ -1221,7 +1462,9 @@
     const gap = 10;
     let placed = [];
     const all = [];
-    const hit = (r) => placed.find((p) => r.x < p.x + p.w + gap && p.x < r.x + r.w + gap && r.y < p.y + p.h + gap && p.y < r.y + r.h + gap);
+    const inside = (a, b) => a.x >= b.x - 2 && a.y >= b.y - 2 && a.x + a.w <= b.x + b.w + 2 && a.y + a.h <= b.y + b.h + 2;
+    // A box drawn inside another (builds inside a machine, a step inside a phase) is nesting, not a collision.
+    const hit = (r) => placed.find((p) => !inside(r, p) && !inside(p, r) && r.x < p.x + p.w + gap && p.x < r.x + r.w + gap && r.y < p.y + p.h + gap && p.y < r.y + r.h + gap);
     (scene.steps || []).forEach((step) => {
       if (step.clear) placed = [];
       (step.items || []).forEach((it) => place(it));
@@ -1268,8 +1511,11 @@
     if (scene.three || global.CHALKTALK_THREE) svg.dataset.three = scene.three || global.CHALKTALK_THREE;
     svg.style.display = "block";
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
+    expandRows(scene);
     dedupe(scene);
+    fitBoxes(scene);
     svg.__boxes = layout(scene, W, H);
+    anchorArrows(scene);
     svg.__plan = [];
     (scene.steps || []).reduce((s, step, i) => {
       const at = step.clear && i ? s + 1 : s;
@@ -1280,7 +1526,15 @@
     const steps = (scene.steps || []).map((step, i) => {
       if (step.clear && i) seg++;
       svg.dataset.seg = String(seg);
-      return (step.items || []).flatMap((it) => build(svg, it, rand, codes, open));
+      // One malformed item must not blank the whole board: draw the rest and say which one failed.
+      return (step.items || []).flatMap((it) => {
+        try {
+          return build(svg, it, rand, codes, open);
+        } catch (e) {
+          console.error(`chalktalk: step ${i + 1} skipped a ${it && it.type} item: ${e && e.message}`);
+          return [];
+        }
+      });
     });
 
     const bar = document.createElement("div");
@@ -1321,32 +1575,46 @@
         if (kind === "fade") node.style.opacity = 0;
         else if (kind === "zoom") node.style.transform = "none";
         else {
+          // Park the dash a little past the end, so its rounded cap does not show as a dot
+          // where the stroke will start before it is drawn.
           const L = node.getTotalLength();
-          node.style.strokeDasharray = L;
-          node.style.strokeDashoffset = L;
+          node.style.strokeDasharray = `${L} ${L + 60}`;
+          node.style.strokeDashoffset = L + 30;
         }
       });
 
+    const scope = `board-${Math.random().toString(36).slice(2, 8)}`;
     const reveal = (i, animate, stretch = 1) => {
       let t = 0;
-      steps[i].forEach(({ node, kind, at, rise, to }) => {
+      // Draw in the order things are spoken, not the order they are listed: an item cued late in
+      // the sentence but written first must not hold back everything after it. Uncued parts stay
+      // with the cued item before them.
+      let last = 0;
+      const order = steps[i]
+        .map((entry, n) => {
+          if (typeof entry.at === "number") last = entry.at;
+          return { entry, key: last, n };
+        })
+        .sort((a, b) => a.key - b.key || a.n - b.n)
+        .map((x) => x.entry);
+      order.forEach(({ node, kind, at, rise, to }) => {
         if (animate && typeof at === "number") t = Math.max(t, at);
         if (kind === "zoom") {
           node.style.transition = animate ? `transform 1.6s cubic-bezier(.45,0,.2,1) ${t}s` : "none";
           node.style.transform = to;
-          if (animate && scene.sound !== false) sound.wipe(t);
+          if (animate && scene.sound !== false) sound.wipe(t, scope);
           if (animate) t += 1.3;
         } else if (kind === "fade") {
           node.style.transition = animate ? `opacity .45s ease ${t}s, transform .55s cubic-bezier(.22,1,.36,1) ${t}s` : "none";
           node.style.opacity = 1;
           if (rise) node.style.transform = "none";
-          if (animate && rise && scene.sound !== false) sound.thump(t);
+          if (animate && rise && scene.sound !== false) sound.thump(t, scope);
           if (animate) t += 0.04 * stretch;
         } else {
           const d = Math.min(0.9, Math.max(0.2, node.getTotalLength() / 700));
           node.style.transition = animate ? `stroke-dashoffset ${d}s ease-in-out ${t}s` : "none";
           node.style.strokeDashoffset = 0;
-          if (animate && scene.sound !== false) sound.scratch(t, d);
+          if (animate && scene.sound !== false) sound.scratch(t, d, "pen", scope);
           if (animate) t += d * 0.85 * stretch;
         }
       });
@@ -1355,6 +1623,8 @@
 
     function go(i, stretch = 1) {
       clearTimeout(timer);
+      // a new draw (next, back, or the same step re-timed to the voice) replaces the old sounds
+      sound.stop(scope);
       if (voice) voice.cancel();
       if (clip) clip.pause();
       if (!steps.length) return;
@@ -1373,7 +1643,7 @@
       for (let k = start; k < current; k++) reveal(k, false);
       const step = scene.steps[current];
       if (step.clear && current === before + 1 && !still) {
-        if (scene.sound !== false) sound.wipe(0);
+        if (scene.sound !== false) sound.wipe(0, scope);
         svg.style.transition = "none";
         svg.style.opacity = "0";
         svg.getBoundingClientRect();

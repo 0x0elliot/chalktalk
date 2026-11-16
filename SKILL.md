@@ -245,10 +245,10 @@ On the whiteboard (`board`, and `board2` for a second one with
 
 | Item | Fields |
 | --- | --- |
-| `box` | `x, y, w, h, label, sub, color, open, brand` |
+| `box` | `id, x, y, w, h, label, sub, color, open, brand` |
 | `logo` | `brand, x, y, size, label` |
 | `bubble` | `x, y, w, h, text, who, to: [x, y]` (a thought bubble, for what someone expects) |
-| `arrow` | `from: [x, y], to: [x, y], bend, label, labelAt, color` |
+| `arrow` | `from, to, bend, label, labelAt, color` (`from`/`to` name what the arrow joins: an item's `id` or its exact label, e.g. `"from": "parse", "to": "reply"`; `[x, y]` only for a point that is not an item. `labelAt` is `[x, y]` or a number 0 to 1 along the arrow) |
 | `circle` | `cx, cy, r` (or `rx, ry`), `label, color` |
 | `line` | `points: [[x, y], …], dashed, color` |
 | `text` | `x, y, text, size, anchor, color` (`x` is the centre unless `anchor` is `start` or `end`) |
@@ -410,6 +410,24 @@ each other, timeline marks stacked on one side, a cue that isn't in that step's 
 no room for its labels. It takes about 20 ms, so run it instead of rendering. Draw a picture only when
 the layout is unusual (a map, a 3D figure, a photo), and then once.
 
+**Check what the user will actually see.** `check.ts` reads the coordinates you wrote; the engine then
+nudges boxes that collide, slides text out of the way and grows rows. `bun <skill-dir>/render-check.ts <dir>`
+draws every step with the real engine in headless Chrome and measures the result: anything the engine
+moved, anything that lands on something else, anything off the board. `send` and `ship` run it and
+refuse to post a lesson that fails (`--force` overrides; don't). `--png` writes `step-N.png` per step for a
+look by eye. When it flags something, move the item to free space; never paper over it with `--force`.
+
+A row redrawn with more cards in a later step (a growing spine) keeps every card in a fixed slot, sized
+for its longest version, and only the new cards draw. Boxes drawn inside a bigger box stay where you put
+them.
+
+**Save a lesson as a video.** The lesson bar has a "⬇ Video" button: the helper renders the boards,
+captions and voice into `~/Downloads/<title>.mp4` and shows it in Finder (or the file manager). From the
+terminal: `bun <skill-dir>/video.ts <lesson-dir | saved-slug> [--vertical] [--out file.mp4]`, where
+`--vertical` makes a 1080x1920 cut for reels and shorts. It plays the lesson in real time in headless
+Chrome, so a two-minute lesson takes about two minutes. Needs Chrome and ffmpeg. 3D stages and page
+highlights are not in the video.
+
 **A missing voice is not a missing answer.** If narration fails (no key, an expired token, no network),
 still post the lesson: the page falls back to the system voice. `send` does this on its own now, so never
 abandon a lesson because the recording failed — tell the user which voice they are hearing instead.
@@ -495,6 +513,12 @@ a pile, and they apply to every lesson:
    but that is a safety net for changing one thing in place, not a layout.
 3. **Count the marks.** Five to twelve per board. If a step has nowhere to draw, the plan is wrong:
    clear earlier, or give the steps lanes.
+4. **Arrows join named things.** Give every box an `id` and write each arrow as `"from": "<id>", "to":
+   "<id>"`; the engine attaches it to the right edges. An arrow end left in empty paper is refused by
+   the render check, and so is an arrow that names something not on the board.
+5. **Labels are names, not identifiers.** 1 to 3 words in `label`; a function or file name goes in `sub`.
+   The engine shrinks text to a 15 px floor, then breaks it onto two lines, then grows the box; text that
+   still spills out of its box is refused by the render check.
 
 **Change a thing in place, or give it new space.** Re-drawing a card at the same coordinates changes it
 (a number going up, a status flipping), and that is what the swap is for. Anything that is a different

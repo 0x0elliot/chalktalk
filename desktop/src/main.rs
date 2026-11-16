@@ -203,6 +203,64 @@ fn present(app: AppHandle) {
     }
 }
 
+fn helper_status(query: &str) -> Option<Value> {
+    use std::io::{Read, Write};
+    let addr = "127.0.0.1:47321".parse().ok()?;
+    let mut stream = std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(500)).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    write!(
+        stream,
+        "GET /status?tab=screen{query} HTTP/1.1\r\nHost: 127.0.0.1:47321\r\nOrigin: tauri://localhost\r\nConnection: close\r\n\r\n"
+    )
+    .ok()?;
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).ok()?;
+    let body = raw.split_once("\r\n\r\n")?.1;
+    serde_json::from_str(body.get(body.find('{')?..=body.rfind('}')?)?).ok()
+}
+
+// The session whose lesson is waiting for the screen, or None. Several sessions can be
+// listening at once, in which case the helper answers "choose" and each is asked in turn.
+fn waiting_lesson() -> Option<Option<String>> {
+    let status = helper_status("")?;
+    if status["lesson"] == true {
+        return Some(status["session"].as_str().map(str::to_string));
+    }
+    if status["claude"] != "choose" {
+        return None;
+    }
+    for session in status["sessions"].as_array()? {
+        let Some(id) = session["id"].as_str() else { continue };
+        if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            continue;
+        }
+        if helper_status(&format!("&session={id}")).map_or(false, |s| s["lesson"] == true) {
+            return Some(Some(id.to_string()));
+        }
+    }
+    None
+}
+
+// Polls from Rust rather than from the overlay's page: macOS suspends a hidden web view, so a
+// page-side poll never sees a lesson that was sent without a note.
+fn watch_for_lessons(app: AppHandle) {
+    loop {
+        std::thread::sleep(Duration::from_millis(1500));
+        if app.state::<Overlay>().showing.load(Ordering::SeqCst) {
+            continue;
+        }
+        let Some(session) = waiting_lesson() else { continue };
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let (Some(window), Some(id)) = (overlay(&handle), session) {
+                let _ = window.eval(&format!("window.__sketchSession = {};", json!(id)));
+            }
+            present(handle);
+        });
+        std::thread::sleep(Duration::from_secs(5));
+    }
+}
+
 fn toggle(app: &AppHandle) {
     toggle_mode(app, "draw");
 }
@@ -317,6 +375,9 @@ fn main() {
                 .visible_on_all_workspaces(true)
                 .visible(false)
                 .build()?;
+
+            let poller = app.handle().clone();
+            std::thread::spawn(move || watch_for_lessons(poller));
 
             let label = if cfg!(target_os = "macos") { "Explain something  ⌃⌥C" } else { "Explain something  Ctrl+Alt+C" };
             let explain = MenuItemBuilder::with_id("explain", label).build(app)?;
