@@ -18,7 +18,8 @@ unfamiliar codebase in a day, review a change you didn't write, or find out why 
 
 Each demo below is one real run: a confused developer asks Claude Code in plain words, the agent
 investigates the real code, and the lesson draws itself over the screen. The waiting is sped up and
-local paths are blurred; nothing else is cut. Click a preview to watch it with sound.
+local paths are blurred; nothing else is cut. Every lesson is spoken out loud: the previews show the
+narration as 🔊 subtitles, and the full videos have the voice. Click a preview to watch it with sound.
 
 ### Learn a codebase
 
