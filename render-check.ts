@@ -89,8 +89,9 @@ const probe = (lesson: any) => {
         return;
       }
       asked.forEach((it: any) => {
-        if (it.type === "arrow" && it.dropped && it.__step === k + 1)
-          out.push(`step ${k + 1}: arrow from "${it.from}" to "${it.to}" names something that isn't on the board, so it was not drawn; use an item's id or exact label`);
+        if (it.type !== "arrow" || !it.dropped || it.__step !== k + 1) return;
+        if (it.loose) out.push(`step ${k + 1}: arrow ${JSON.stringify(it.from)} to ${JSON.stringify(it.to)} has its ${it.loose} in empty space, so it was not drawn; name what it joins ("from": "<id or label>", "to": "<id or label>")`);
+        else out.push(`step ${k + 1}: arrow from "${it.from}" to "${it.to}" names something that isn't on the board, so it was not drawn; use an item's id or exact label`);
       });
       if (!svgEl) return;
       // Things the engine moved: compare where a box was asked to go with where it was drawn.
@@ -118,9 +119,6 @@ const probe = (lesson: any) => {
             const over = Math.max(f.x - b.x, b.x + b.width - (f.x + f.width), f.y - b.y, b.y + b.height - (f.y + f.height));
             if (over > 2) out.push(`step ${k + 1}: "${t.textContent}" spills ${Math.round(over)}px out of its box; shorten the label (1 to 3 words) or move the detail to sub`);
           });
-        }
-        if (type === "arrow" && it.__step === k + 1 && g.dataset.loose) {
-          out.push(`step ${k + 1}: arrow ${JSON.stringify(it.from)} to ${JSON.stringify(it.to)} has its ${g.dataset.loose} in empty space; name what it joins ("from": "<id or label>", "to": "<id or label>")`);
         }
         if (type === "arrow" || type === "line") {
           g.querySelectorAll("text").forEach((t) => {

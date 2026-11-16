@@ -516,7 +516,11 @@
         const to = end(pb, b, from.p, a);
         it.from = from.p;
         it.to = to.p;
-        if (from.loose || to.loose) it.loose = [from.loose && "start", to.loose && "end"].filter(Boolean).join(" and ");
+        if (from.loose || to.loose) {
+          it.loose = [from.loose && "start", to.loose && "end"].filter(Boolean).join(" and ");
+          it.drop = true;
+          console.error(`chalktalk: arrow ${JSON.stringify(it.from)} to ${JSON.stringify(it.to)} has its ${it.loose} in empty space, so it is not drawn`);
+        }
       });
       items.forEach((it) => it && it.drop && (it.dropped = true));
     });
@@ -692,7 +696,6 @@
 
   function build(svg, it, rand, codes, open) {
     let g = make("g", { "data-seg": svg.dataset.seg || "0", "data-type": it.type }, svg);
-    if (it.loose) g.dataset.loose = it.loose;
     const out = [];
     if (it.brand && !it.color) it.color = brandOf(it.brand) ? brandOf(it.brand).color : undefined;
     const ink = paint(it.color);
