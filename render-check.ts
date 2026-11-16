@@ -4,7 +4,7 @@
 // catches what the engine changed on the way: boxes it pushed aside, rows that stacked, labels
 // that ended up on top of cards.
 //
-//   bun render-check.ts <lesson-dir> [--png]     exit 1 when something overlaps or moved
+//   bun render-check.ts <lesson-dir> [--png]     exit 1 when something overlaps, moved, spills out of its box, or an arrow joins nothing
 //
 // --png also writes step-N.png into the lesson folder, one picture per step, for a look by eye.
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
@@ -75,11 +75,12 @@ const probe = (lesson: any) => {
           ...it,
           ...(it.type === "row" && Array.isArray(it.items) ? { items: it.items.map((c: any) => ({ ...c, __step: start + j + 1 })) } : {}),
           __step: start + j + 1,
-          __orig: it.type === "box" ? [it.x, it.y] : null,
+          __orig: it.type === "box" ? [it.x + (it.w || 0) / 2, it.y + (it.h || 0) / 2, it.x, it.y] : null,
         })),
         clear: false,
       }));
       let svgEl: SVGSVGElement | null = null;
+      const asked = slice.flatMap((s: any) => s.items);
       try {
         (window as any).Chalktalk.mount(host, { width: W, height: H, autoplay: false, steps: slice });
         svgEl = host.querySelector("svg");
@@ -87,13 +88,17 @@ const probe = (lesson: any) => {
         out.push(`step ${k + 1}: ${key} failed to draw: ${e && e.message}`);
         return;
       }
+      asked.forEach((it: any) => {
+        if (it.type === "arrow" && it.dropped && it.__step === k + 1)
+          out.push(`step ${k + 1}: arrow from "${it.from}" to "${it.to}" names something that isn't on the board, so it was not drawn; use an item's id or exact label`);
+      });
       if (!svgEl) return;
       // Things the engine moved: compare where a box was asked to go with where it was drawn.
       slice.forEach((s: any) =>
         s.items.forEach((it: any) => {
           if (!it.__orig || it.__step !== k + 1) return;
-          const [x0, y0] = it.__orig;
-          if (Math.abs(it.x - x0) > 1 || Math.abs(it.y - y0) > 1) out.push(`step ${k + 1}: ${name(it)} was moved by the engine from (${x0},${y0}) to (${Math.round(it.x)},${Math.round(it.y)}) because it sat on something; place it somewhere free`);
+          const [cx, cy, x0, y0] = it.__orig;
+          if (Math.abs(it.x + it.w / 2 - cx) > 1 || Math.abs(it.y + it.h / 2 - cy) > 1) out.push(`step ${k + 1}: ${name(it)} was moved by the engine from (${x0},${y0}) to (${Math.round(it.x)},${Math.round(it.y)}) because it sat on something; place it somewhere free`);
         }),
       );
       // Everything drawn, with its real box. Each item is one <g data-type>; arrows count by their label.
@@ -104,6 +109,19 @@ const probe = (lesson: any) => {
       groups.forEach((g, i) => {
         const type = g.dataset.type!;
         const it = flat[i] || { type };
+        if (it.__step === k + 1 && type === "box") {
+          const card = g.querySelector("rect[rx]") as SVGGraphicsElement | null;
+          const f = card ? card.getBBox() : { x: it.x, y: it.y, width: it.w, height: it.h };
+          g.querySelectorAll("text").forEach((t) => {
+            const b = (t as SVGGraphicsElement).getBBox();
+            if (!b.width || ![f.x, f.y, f.width, f.height].every(Number.isFinite)) return;
+            const over = Math.max(f.x - b.x, b.x + b.width - (f.x + f.width), f.y - b.y, b.y + b.height - (f.y + f.height));
+            if (over > 2) out.push(`step ${k + 1}: "${t.textContent}" spills ${Math.round(over)}px out of its box; shorten the label (1 to 3 words) or move the detail to sub`);
+          });
+        }
+        if (type === "arrow" && it.__step === k + 1 && g.dataset.loose) {
+          out.push(`step ${k + 1}: arrow ${JSON.stringify(it.from)} to ${JSON.stringify(it.to)} has its ${g.dataset.loose} in empty space; name what it joins ("from": "<id or label>", "to": "<id or label>")`);
+        }
         if (type === "arrow" || type === "line") {
           g.querySelectorAll("text").forEach((t) => {
             const b = (t as SVGGraphicsElement).getBBox();
@@ -159,8 +177,8 @@ try {
   const dom = run.stdout.toString();
   const raw = /<pre id="out">([\s\S]*?)<\/pre>/.exec(dom)?.[1];
   if (!raw) {
-    console.log("render check skipped: headless Chrome returned nothing");
-    process.exit(0);
+    console.log("render check failed: headless Chrome returned nothing, so the board was never measured");
+    process.exit(1);
   }
   const problems: string[] = JSON.parse(raw.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"));
 
@@ -169,10 +187,10 @@ try {
     let start = 0;
     steps.forEach((step: any, k: number) => {
       if (step.clear && k) start = k;
-      const slice = steps.slice(start, k + 1).map((s: any) => ({ items: s.board || [] }));
+      const slice = steps.slice(start, k + 1).map((s: any) => ({ items: (s.board || []).map(({ at, ...it }: any) => it) }));
       const f = join(work, `s${k}.html`);
       writeFileSync(f, page(`Chalktalk.mount(document.getElementById("m"), { width: ${lesson.board?.width || 600}, height: ${lesson.board?.height || 420}, autoplay: true, steps: [{ items: ${JSON.stringify(slice.flatMap((s: any) => s.items))} }] });`));
-      Bun.spawnSync([bin, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--virtual-time-budget=15000", `--window-size=${lesson.board?.width || 600},${(lesson.board?.height || 420) + 60}`, `--screenshot=${join(dir, `step-${k + 1}.png`)}`, `file://${f}`], { stderr: "ignore" });
+      Bun.spawnSync([bin, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--force-prefers-reduced-motion", "--virtual-time-budget=15000", `--window-size=${lesson.board?.width || 600},${(lesson.board?.height || 420) + 60}`, `--screenshot=${join(dir, `step-${k + 1}.png`)}`, `file://${f}`], { stderr: "ignore" });
     });
   }
 
@@ -181,7 +199,7 @@ try {
     process.exit(0);
   }
   for (const p of problems) console.log(`  ${p}`);
-  console.log(`render check: ${problems.length} thing${problems.length === 1 ? "" : "s"} overlap or moved on the real board`);
+  console.log(`render check: ${problems.length} thing${problems.length === 1 ? "" : "s"} to fix on the real board`);
   process.exit(1);
 } finally {
   rmSync(work, { recursive: true, force: true });

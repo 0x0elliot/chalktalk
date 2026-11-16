@@ -359,12 +359,8 @@
     });
     if (opts.maxWidth) {
       let size = opts.size || 20;
-      try {
-        while (size > 11 && t.getComputedTextLength() > opts.maxWidth) {
-          size -= 1;
-          t.setAttribute("font-size", size);
-        }
-      } catch {}
+      while (size > (opts.minSize || 14) && measure(opts.text, size, opts.mono) > opts.maxWidth) size -= 1;
+      t.setAttribute("font-size", size);
     }
     if (opts.clamp !== false) keepInside(t, lines, opts.size || 20);
     return t;
@@ -372,6 +368,160 @@
 
   // Patrick Hand averages about half its size per character; check.ts uses the same estimate.
   const textWidth = (text, size) => Math.max(0, ...String(text).split("\n").map((l) => l.length)) * size * 0.52;
+
+  // Measured on a canvas, not the page: boards are built while their panel is still hidden, and a
+  // hidden SVG reports every text as zero wide. Before the font loads, the fallback is wider, so a
+  // fit made early errs on the small side.
+  let measureCtx = null;
+  function measure(text, size, mono) {
+    const lines = String(text ?? "").split("\n");
+    try {
+      measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
+      measureCtx.font = `${size}px ${mono ? MONO : HAND}`;
+      return Math.max(0, ...lines.map((l) => measureCtx.measureText(l).width));
+    } catch {
+      return textWidth(text, size);
+    }
+  }
+
+  // Splits a label into two lines at the most even break: a space, a camelCase hump, or after _ . / - (
+  function splitTwo(text) {
+    const s = String(text);
+    let best = null;
+    for (let i = 1; i < s.length; i++) {
+      const a = s[i - 1];
+      const b = s[i];
+      const ok = a === " " || /[_./(-]/.test(a) || (/[a-z0-9]/.test(a) && /[A-Z]/.test(b));
+      if (!ok) continue;
+      const left = s.slice(0, i).trimEnd();
+      const right = s.slice(i).trimStart();
+      if (!left || !right) continue;
+      const score = Math.max(left.length, right.length);
+      if (!best || score < best.score) best = { score, lines: [left, right] };
+    }
+    return best && best.lines;
+  }
+
+  const LABEL_MIN = 15;
+  const SUB_MIN = 12;
+  const SUB_GAP = 4;
+
+  // Every box's text fits inside the box, decided before anything is drawn: shrink to a readable
+  // floor, then break onto two lines, then make the box bigger around its own centre. A card in a
+  // row keeps its width (its neighbours sit right beside it) and only grows taller.
+  function fitBoxes(scene) {
+    (scene.steps || []).forEach((step) =>
+      (step.items || []).forEach((it) => {
+        if (!it || it.type !== "box" || ![it.x, it.y, it.w, it.h].every(Number.isFinite)) return;
+        const room = () => it.w - 20 - (it.brand ? 32 : 0);
+        const fit = (text, size, min) => {
+          if (text === undefined || text === null || text === "") return null;
+          let lines = String(text).split("\n");
+          const widest = (s) => Math.max(...lines.map((l) => measure(l, s)));
+          let s = size;
+          while (s > min && widest(s) > room()) s--;
+          if (widest(s) > room() && lines.length === 1) {
+            const two = splitTwo(lines[0]);
+            if (two) {
+              lines = two;
+              s = size;
+              while (s > min && widest(s) > room()) s--;
+            }
+          }
+          return { lines, size: s, w: widest(s), h: lines.length * s * 1.15 };
+        };
+        const label = fit(it.label, it.size || 22, LABEL_MIN);
+        const sub = fit(it.sub, it.subSize || 16, SUB_MIN);
+        const needW = Math.max(label ? label.w : 0, sub ? sub.w : 0) + 20 + (it.brand ? 32 : 0);
+        if (needW > it.w && !it.__row) {
+          it.x -= (needW - it.w) / 2;
+          it.w = needW;
+        }
+        const needH = (label ? label.h : 0) + (sub ? SUB_GAP + sub.h : 0) + 14;
+        if (needH > it.h) {
+          it.y -= (needH - it.h) / 2;
+          it.h = needH;
+        }
+        if (label) {
+          it.label = label.lines.join("\n");
+          it.size = label.size;
+        }
+        if (sub) {
+          it.sub = sub.lines.join("\n");
+          it.subSize = sub.size;
+        }
+      }),
+    );
+  }
+
+  // Arrows join things. An end can name an item ("from": "parse", matched on its id, then its
+  // label); a coordinate end within reach of a shape is pulled onto that shape's edge. An end
+  // left in empty paper is marked, so the render check can refuse the lesson.
+  const SNAP = 48;
+  function anchorArrows(scene) {
+    const groups = [];
+    (scene.steps || []).forEach((step, i) => {
+      if (!groups.length || (step.clear && i)) groups.push([]);
+      groups[groups.length - 1].push(...(step.items || []));
+    });
+    groups.forEach((items) => {
+      const shapes = items
+        .filter((it) => it && !["arrow", "line", "ring", "underline", "event", "zoom", "region", "pin", "route"].includes(it.type))
+        .map((it) => ({ it, r: footprintOf(it) }))
+        .filter((s) => s.r);
+      const key = (v) => String(v ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+      const byRef = (ref) => shapes.find((s) => s.it.id !== undefined && key(s.it.id) === key(ref)) || shapes.find((s) => key(s.it.label ?? s.it.text) === key(ref));
+      const centre = (r) => [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
+      const gap = 3;
+      const toward = (r, [tx, ty]) => {
+        const [cx, cy] = centre(r);
+        const dx = tx - cx;
+        const dy = ty - cy;
+        const hw = (r.x1 - r.x0) / 2 + gap;
+        const hh = (r.y1 - r.y0) / 2 + gap;
+        const k = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
+        return Number.isFinite(k) ? [cx + dx * k, cy + dy * k] : [cx, cy];
+      };
+      const away = (r, [px, py]) => Math.hypot(Math.max(r.x0 - px, 0, px - r.x1), Math.max(r.y0 - py, 0, py - r.y1));
+      const onto = (r, [px, py]) => {
+        const x = Math.min(Math.max(px, r.x0), r.x1);
+        const y = Math.min(Math.max(py, r.y0), r.y1);
+        const d = Math.hypot(px - x, py - y) || 1;
+        return [x + ((px - x) / d) * gap, y + ((py - y) / d) * gap];
+      };
+      items.forEach((it) => {
+        if (!it || it.type !== "arrow") return;
+        const named = (end) => (typeof end === "string" ? byRef(end) : null);
+        const a = named(it.from);
+        const b = named(it.to);
+        if ((typeof it.from === "string" && !a) || (typeof it.to === "string" && !b)) {
+          it.drop = true;
+          console.error(`chalktalk: arrow from "${it.from}" to "${it.to}" names something that isn't on the board`);
+          return;
+        }
+        const pa = a ? centre(a.r) : it.from;
+        const pb = b ? centre(b.r) : it.to;
+        if (!Array.isArray(pa) || !Array.isArray(pb)) return;
+        const end = (p, named, other, otherShape) => {
+          if (named) return { p: toward(named.r, other), loose: false };
+          const near = shapes
+            .filter((s) => s !== otherShape)
+            .map((s) => ({ s, d: away(s.r, p) }))
+            .sort((x, y) => x.d - y.d)[0];
+          if (near && near.d === 0) return { p, loose: false };
+          if (near && near.d <= SNAP) return { p: onto(near.s.r, p), loose: false };
+          return { p, loose: true };
+        };
+        const from = end(pa, a, pb, b);
+        const to = end(pb, b, from.p, a);
+        it.from = from.p;
+        it.to = to.p;
+        if (from.loose || to.loose) it.loose = [from.loose && "start", to.loose && "end"].filter(Boolean).join(" and ");
+      });
+      items.forEach((it) => it && it.drop && (it.dropped = true));
+    });
+    (scene.steps || []).forEach((step) => (step.items = (step.items || []).filter((it) => !(it && it.dropped))));
+  }
   const BOARD_PAD = 6;
 
   // No text ever leaves the board: shrink what is wider than the board, then slide it back inside.
@@ -542,6 +692,7 @@
 
   function build(svg, it, rand, codes, open) {
     let g = make("g", { "data-seg": svg.dataset.seg || "0", "data-type": it.type }, svg);
+    if (it.loose) g.dataset.loose = it.loose;
     const out = [];
     if (it.brand && !it.color) it.color = brandOf(it.brand) ? brandOf(it.brand).color : undefined;
     const ink = paint(it.color);
@@ -661,8 +812,13 @@
         const shift = it.brand ? 16 : 0;
         if (it.brand) fade(logo(g, it.brand, x + 10, y + h / 2 - 13, 26));
         const room = w - 20 - shift * 2;
-        if (it.label) label(it.label, x + w / 2 + shift, y + h / 2 - (it.sub ? 11 : 0), { size: it.size || 22, maxWidth: room });
-        if (it.sub) label(it.sub, x + w / 2 + shift, y + h / 2 + 15, { size: 16, color: it.subColor || "gray", maxWidth: room });
+        const ls = it.size || 22;
+        const ss = it.subSize || 16;
+        const lh = it.label ? String(it.label).split("\n").length * ls * 1.15 : 0;
+        const sh = it.sub ? String(it.sub).split("\n").length * ss * 1.15 : 0;
+        const top = y + h / 2 - (lh + (it.label && it.sub ? SUB_GAP : 0) + sh) / 2;
+        if (it.label) label(it.label, x + w / 2 + shift, top + lh / 2, { size: ls, maxWidth: room, minSize: LABEL_MIN });
+        if (it.sub) label(it.sub, x + w / 2 + shift, top + lh + (it.label ? SUB_GAP : 0) + sh / 2, { size: ss, color: it.subColor || "gray", maxWidth: room, minSize: SUB_MIN });
         break;
       }
       case "logo": {
@@ -1271,7 +1427,7 @@
         const out = [];
         it.items.forEach((cell, k) => {
           const x = it.x + k * (bw + gap);
-          const box = { ...cell, type: "box", x, y: it.y, w: bw, h, on: cell.on ?? it.on, at: it.at, look: cell.look ?? it.look };
+          const box = { ...cell, type: "box", x, y: it.y, w: bw, h, on: cell.on ?? it.on, at: it.at, look: cell.look ?? it.look, __row: true };
           delete box.arrow;
           const id = `box|${x.toFixed(1)}|${it.y}`;
           const sig = JSON.stringify([box.label, box.sub, box.color, box.brand]);
@@ -1354,7 +1510,9 @@
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
     expandRows(scene);
     dedupe(scene);
+    fitBoxes(scene);
     svg.__boxes = layout(scene, W, H);
+    anchorArrows(scene);
     svg.__plan = [];
     (scene.steps || []).reduce((s, step, i) => {
       const at = step.clear && i ? s + 1 : s;
