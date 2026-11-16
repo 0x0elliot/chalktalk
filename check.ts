@@ -21,6 +21,31 @@ const lesson = await file.json();
 const W = lesson.board?.width || 680;
 const H = lesson.board?.height || 400;
 const steps = lesson.steps || [];
+// Timelines with dates ("2026-10-18") are placed in milliseconds, the same way the engine does.
+{
+  const isDate = (v: any) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v);
+  const toMs = (v: string) => Date.parse(v.length === 10 || /([zZ]|[+-]\d\d:?\d\d)$/.test(v) ? v : `${v}Z`);
+  const dateEvent = (e: any) => {
+    const v = e.date ?? e.year;
+    if (!isDate(v)) return;
+    if (e.when == null) e.when = new Date(toMs(v)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    e.year = toMs(v);
+  };
+  steps.forEach((s: any) =>
+    [...(s.board || []), ...(s.board2 || [])].forEach((it: any) => {
+      if (it.type === "timeline" && (isDate(it.from) || isDate(it.to))) {
+        it.from = toMs(String(it.from));
+        it.to = toMs(String(it.to));
+        (it.eras || []).forEach((e: any) => {
+          if (isDate(e.from)) e.from = toMs(e.from);
+          if (isDate(e.to)) e.to = toMs(e.to);
+        });
+        (it.events || []).forEach(dateEvent);
+      }
+      if (it.type === "event") dateEvent(it);
+    }),
+  );
+}
 const problems: string[] = [];
 const warn = (step: number, msg: string) => problems.push(`${step ? `step ${step}: ` : ""}${msg}`);
 

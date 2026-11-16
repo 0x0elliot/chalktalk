@@ -402,6 +402,39 @@
     return best && best.lines;
   }
 
+  // Timelines take years (1861) or real dates and times ("2026-10-18", "2026-10-21T03:10Z"). Dates
+  // become milliseconds before anything is placed, so the rest of the timeline code stays numeric.
+  const DAY = 86400000;
+  const isDate = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v);
+  const toMs = (v) => Date.parse(v.length === 10 || /([zZ]|[+-]\d\d:?\d\d)$/.test(v) ? v : `${v}Z`);
+  const dayOf = (ms) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const clockOf = (ms) => new Date(ms).toISOString().slice(11, 16);
+  function datedTimelines(scene) {
+    const dateEvent = (e) => {
+      const v = e.date ?? e.year;
+      if (!isDate(v)) return;
+      const ms = toMs(v);
+      if (e.when == null) e.when = /T\d\d:\d\d/.test(v) ? `${dayOf(ms)} ${clockOf(ms)}` : dayOf(ms);
+      e.year = ms;
+    };
+    (scene.steps || []).forEach((step) =>
+      (step.items || []).forEach((it) => {
+        if (!it) return;
+        if (it.type === "timeline" && (isDate(it.from) || isDate(it.to))) {
+          it.from = toMs(String(it.from));
+          it.to = toMs(String(it.to));
+          it.dates = true;
+          (it.eras || []).forEach((e) => {
+            if (isDate(e.from)) e.from = toMs(e.from);
+            if (isDate(e.to)) e.to = toMs(e.to);
+          });
+          (it.events || []).forEach(dateEvent);
+        }
+        if (it.type === "event") dateEvent(it);
+      }),
+    );
+  }
+
   const LABEL_MIN = 15;
   const SUB_MIN = 12;
   const SUB_GAP = 4;
@@ -1090,10 +1123,15 @@
         });
         stroke(wobble(rand, [[x - 6, y], [x + w, y]], 1.1));
         stroke(`M${x + w - 11} ${y - 7} L${x + w + 1} ${y} L${x + w - 11} ${y + 7}`);
-        const step = it.tick || [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000].find((s) => span / s <= 8) || Math.ceil(span / 8);
+        const steps = it.dates
+          ? [3600e3, 2 * 3600e3, 3 * 3600e3, 6 * 3600e3, 12 * 3600e3, DAY, 2 * DAY, 7 * DAY, 14 * DAY, 30 * DAY, 91 * DAY, 365 * DAY]
+          : [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
+        const most = it.dates ? 6 : 8;
+        const step = (!it.dates && it.tick) || steps.find((s) => span / s <= most) || Math.ceil(span / most);
+        const tickText = (t) => (!it.dates ? String(t) : step < DAY && t % DAY ? clockOf(t) : dayOf(t));
         for (let t = Math.ceil(from / step) * step; t <= to; t += step) {
           stroke(`M${X(t)} ${y - 5} L${X(t)} ${y + 5}`);
-          if (!(it.eras || []).length) label(String(t), X(t), y + 22, { size: 13, color: "gray" });
+          if (!(it.eras || []).length) label(tickText(t), X(t), y + 22, { size: 13, color: "gray" });
         }
         (it.events || []).forEach((e) => event(line, e));
         break;
@@ -1520,6 +1558,7 @@
     if (scene.three || global.CHALKTALK_THREE) svg.dataset.three = scene.three || global.CHALKTALK_THREE;
     svg.style.display = "block";
     if (scene.background) make("image", { href: scene.background, x: 0, y: 0, width: W, height: H, preserveAspectRatio: "xMidYMid meet" }, svg);
+    datedTimelines(scene);
     expandRows(scene);
     dedupe(scene);
     fitBoxes(scene);
