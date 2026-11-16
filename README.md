@@ -8,6 +8,56 @@ matters), and explains it out loud, one plain step at a time.
 
 ▶ [Watch the full 80-second demo, with sound](media/chalktalk-demo.mp4)
 
+## It's your coding agent, not a screen-share chatbot
+
+A chatbot that watches your screen only knows what's on it. Chalktalk is a skill for the agent you
+already code with (Claude Code, OpenCode, Codex), so it has the repo open. It reads the files, follows
+the calls, checks the logs, uses whatever tools you've given it, and then draws what it found. Every
+box on the board opens the real `file:line` it came from. That makes it the fastest way to learn an
+unfamiliar codebase in a day, review a change you didn't write, or find out why production broke.
+
+Each demo below is one real run: a confused developer asks Claude Code in plain words, the agent
+investigates the real code, and the lesson draws itself over the screen. The waiting is sped up and
+local paths are blurred; nothing else is cut. Click a preview to watch it with sound.
+
+### Learn a codebase
+
+*"I just cloned redis and I'm lost. What actually happens when I type SET name ada?"* The agent reads
+the event loop, the parser, the command table and the keyspace, and walks the command through them.
+
+[![Claude Code explains what happens when you type SET in Redis](media/demo-codebase.gif)](media/demo-codebase.mp4)
+
+### Understand a rollback, then fix it
+
+*"We rolled back last night's deploy because the worker kept logging 'event doc not found', and nobody
+knows why."* The agent reads the git history and the logs, finds the replica lag behind the bug,
+explains it, and writes the fix so the change can ship again.
+
+[![Claude Code explains why a deploy was rolled back and fixes it](media/demo-rollback.gif)](media/demo-rollback.mp4)
+
+### Read an incident with your own browser
+
+*"Railway's breach report is open in Chrome. Read it there and chalktalk how the attacker got in."*
+Chalktalk uses whatever your agent can use. Claude in Chrome can't read your own tabs, so the agent
+asks for the link, opens the report in its own tab, reads it, and lays the attack out hop by hop on
+a dated timeline.
+
+[![Claude Code reads Railway's incident report in Chrome and draws the attack hop by hop](media/demo-incident.gif)](media/demo-incident.mp4)
+
+### Review a pull request
+
+*"We're moving to Express 5 and PR #4212 is in it. What does it change, and could it break us?"* The
+agent reads the diff and the code around it, and shows who breaks and who's safe.
+
+[![Claude Code explains what Express PR 4212 changes and who it breaks](media/demo-pr.gif)](media/demo-pr.mp4)
+
+### Check a ticket against the code
+
+*"Is psf/requests#3829 a real bug? Why would verify=False get ignored?"* The agent reads the issue and
+the code, follows one call through, and shows exactly where the session's `False` gets thrown away.
+
+[![Claude Code explains why requests ignores verify=False](media/demo-ticket.gif)](media/demo-ticket.mp4)
+
 ## A HeyClicky alternative with no subscription
 
 Screen-aware AI tutors like HeyClicky are separate apps with their own monthly plans. Chalktalk is a
