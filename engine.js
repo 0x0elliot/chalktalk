@@ -508,7 +508,16 @@
             .filter((s) => s !== otherShape)
             .map((s) => ({ s, d: away(s.r, p) }))
             .sort((x, y) => x.d - y.d)[0];
-          if (near && near.d === 0) return { p, loose: false };
+          if (near && near.d === 0) {
+            // An end inside a card hides its head under the card: move it out to the edge facing the
+            // other end. A frame holding other shapes is a region, so an end inside it stays put.
+            const holders = shapes
+              .filter((s) => s !== otherShape && away(s.r, p) === 0)
+              .sort((x, y) => (x.r.x1 - x.r.x0) * (x.r.y1 - x.r.y0) - (y.r.x1 - y.r.x0) * (y.r.y1 - y.r.y0));
+            const card = holders.find((h) => !shapes.some((s) => s !== h && s.r.x0 >= h.r.x0 && s.r.x1 <= h.r.x1 && s.r.y0 >= h.r.y0 && s.r.y1 <= h.r.y1));
+            if (card && away(card.r, other) > 0) return { p: toward(card.r, other), loose: false };
+            return { p, loose: false };
+          }
           if (near && near.d <= SNAP) return { p: onto(near.s.r, p), loose: false };
           return { p, loose: true };
         };
