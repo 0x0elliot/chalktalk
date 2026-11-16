@@ -24,8 +24,9 @@ local paths are blurred; nothing else is cut. Click a preview to watch it with s
 
 *"I just cloned redis and I'm lost. What actually happens when I type SET name ada?"* The agent reads
 the event loop, the parser, the command table and the keyspace, and walks the command through them.
+It asks first how deep you want to go.
 
-[![Claude Code explains what happens when you type SET in Redis](media/demo-codebase.gif)](media/demo-codebase.mp4)
+[![Claude Code explains what happens when you type SET in Redis](media/demo-codebase.webp)](media/demo-codebase.mp4)
 
 ### Understand a rollback, then fix it
 
@@ -33,7 +34,7 @@ the event loop, the parser, the command table and the keyspace, and walks the co
 knows why."* The agent reads the git history and the logs, finds the replica lag behind the bug,
 explains it, and writes the fix so the change can ship again.
 
-[![Claude Code explains why a deploy was rolled back and fixes it](media/demo-rollback.gif)](media/demo-rollback.mp4)
+[![Claude Code explains why a deploy was rolled back and fixes it](media/demo-rollback.webp)](media/demo-rollback.mp4)
 
 ### Read an incident with your own browser
 
@@ -42,21 +43,21 @@ Chalktalk uses whatever your agent can use. Claude in Chrome can't read your own
 asks for the link, opens the report in its own tab, reads it, and lays the attack out hop by hop on
 a dated timeline.
 
-[![Claude Code reads Railway's incident report in Chrome and draws the attack hop by hop](media/demo-incident.gif)](media/demo-incident.mp4)
+[![Claude Code reads Railway's incident report in Chrome and draws the attack hop by hop](media/demo-incident.webp)](media/demo-incident.mp4)
 
 ### Review a pull request
 
 *"We're moving to Express 5 and PR #4212 is in it. What does it change, and could it break us?"* The
 agent reads the diff and the code around it, and shows who breaks and who's safe.
 
-[![Claude Code explains what Express PR 4212 changes and who it breaks](media/demo-pr.gif)](media/demo-pr.mp4)
+[![Claude Code explains what Express PR 4212 changes and who it breaks](media/demo-pr.webp)](media/demo-pr.mp4)
 
 ### Check a ticket against the code
 
 *"Is psf/requests#3829 a real bug? Why would verify=False get ignored?"* The agent reads the issue and
 the code, follows one call through, and shows exactly where the session's `False` gets thrown away.
 
-[![Claude Code explains why requests ignores verify=False](media/demo-ticket.gif)](media/demo-ticket.mp4)
+[![Claude Code explains why requests ignores verify=False](media/demo-ticket.webp)](media/demo-ticket.mp4)
 
 ## A HeyClicky alternative with no subscription
 
