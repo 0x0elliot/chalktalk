@@ -256,8 +256,8 @@ On the whiteboard (`board`, and `board2` for a second one with
 | `code` | `id, x, y, file, start, lines` |
 | `ring`, `underline` | `code, line, cols, note, noteAt, color` (marks a line of a `code` item) |
 | `image` | `href, x, y, w, h` (a file in the lesson folder by name, or a URL) |
-| `timeline` | `id, x, y, w, from, to, tick, eras: [{ from, to, label, color }], events: [...]` (a dated axis) |
-| `event` | `timeline, year, label, when, color, side, reach, width` (a dated mark on a timeline; `year` places it, `when` is the text shown, e.g. "1861 to 65"; one per step builds it up) |
+| `timeline` | `id, x, y, w, from, to, tick, eras: [{ from, to, label, color }], events: [...]` (a dated axis; `from`/`to` are years, or dates and times for anything shorter: `"2026-10-18"`, `"2026-10-21T03:10Z"`, and the ticks read "Oct 18" or "03:10") |
+| `event` | `timeline, year, date, label, when, color, side, reach, width` (a dated mark on a timeline; `year` or `date` places it, `when` is the text shown, e.g. "1861 to 65", and defaults to the date; one per step builds it up) |
 | `bars` | `x, y, w, h, bars: [{ label, value, color }], max, unit, color` (a hand-drawn bar chart) |
 | `row` | `x, y, w, h, gap, items: [{ label, color, sub }]` (a chain of cards with arrows; the cheapest way to draw one) |
 | `icon` | `name, x, y, size, label, color, weight` (one of 2,100 Lucide outline icons, drawn stroke by stroke) |
@@ -529,7 +529,19 @@ lesson about the real world usually needs both:
 
 - If the narration has dates, eras, "by 1900", "after the war", "then", "next", it goes on a `timeline`,
   with one `event` added in the step that says it. If a year is spoken and no mark appears on that year,
-  the board is lying about what the lesson is.
+  the board is lying about what the lesson is. An incident, a deploy or an outage is a timeline too, in
+  days or hours: give `from`/`to` and each event's `date` as ISO dates or times. The render check refuses
+  a lesson whose script names two or more dates with no timeline on the board. An incident, built up one
+  hop per step, with the chain of systems above it:
+
+  ```json
+  { "type": "timeline", "id": "t", "x": 40, "y": 260, "w": 660, "from": "2026-10-18", "to": "2026-10-22" }
+  { "type": "event", "timeline": "t", "date": "2026-10-18", "label": "Sign-ups", "on": "sign-ups" }
+  { "type": "event", "timeline": "t", "date": "2026-10-21T03:10Z", "label": "Decrypt", "color": "red", "on": "decrypt" }
+  ```
+
+  The chain says how the attacker moved; the timeline says when. Both stay on the board for the whole
+  lesson, each step adding one card and one event.
 - **A timeline has to be readable without moving your eyes twice.** No mark may touch another: leave at
   least a label's width between two marks on the same side. When two dates are close, merge them into one
   event with both years in `when` ("feb and oct 1917"), put one above and one below, or drop the earlier

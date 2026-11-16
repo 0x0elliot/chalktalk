@@ -180,6 +180,16 @@ try {
   }
   const problems: string[] = JSON.parse(raw.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"));
 
+  // A script that walks through dates is drawn on a timeline (SKILL.md, "Time goes on a timeline").
+  const MONTH = "January|February|March|April|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec";
+  const ORD = "\\d{1,2}(?:st|nd|rd|th)?|(?:twenty|thirty)?-?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth";
+  const dated = new RegExp(`\\b(?:(?:${MONTH}|May)\\s+(?:${ORD})\\b|(?:in|by|since|until|till|around|before|after)\\s+(?:1[0-9]{3}|20[0-9]{2})\\b)`, "g");
+  const said = (lesson.steps || []).map((s: any) => String(s.say || "")).join(" ");
+  const dates = [...new Set((said.match(dated) || []).map((d) => d.replace(/^(in|by|since|until|till|around|before|after)\s+/i, "")))];
+  const hasTimeline = (lesson.steps || []).some((s: any) => [...(s.board || []), ...(s.board2 || [])].some((it: any) => it && (it.type === "timeline" || it.type === "event")));
+  if (dates.length >= 2 && !hasTimeline)
+    problems.push(`the script names ${dates.length} dates (${dates.slice(0, 4).join(", ")}) but nothing is on a timeline; draw one ({ "type": "timeline", "from": "2026-10-18", "to": "2026-10-22" } takes dates and times) and add an event for each date in the step that says it`);
+
   if (png) {
     const steps = lesson.steps || [];
     let start = 0;
