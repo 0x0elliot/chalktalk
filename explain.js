@@ -187,10 +187,19 @@
           if (panels.every((p) => p.style.display === "none")) column.style.display = "none";
         });
         panel.append(shut);
+        // A quiet hint that the frame is a handle; the whole edge drags, not just this mark.
+        const hint = document.createElement("div");
+        hint.textContent = "⠿";
+        hint.dataset.sketchHandle = "1";
+        hint.style.cssText = "position:absolute;top:1px;left:50%;transform:translateX(-50%);font:14px system-ui,sans-serif;color:#8889;letter-spacing:2px;opacity:0;transition:opacity .2s;pointer-events:none;user-select:none";
+        panel.append(hint);
+        panel.addEventListener("pointerenter", () => (hint.style.opacity = "1"));
+        panel.addEventListener("pointerleave", () => (hint.style.opacity = "0"));
         if (meta.title) {
           const title = document.createElement("div");
           title.textContent = meta.title;
-          title.style.cssText = "font:21px 'Patrick Hand',system-ui,sans-serif;color:#5F5E5A;margin-bottom:2px";
+          title.dataset.sketchHandle = "1";
+          title.style.cssText = "font:21px 'Patrick Hand',system-ui,sans-serif;color:#5F5E5A;margin-bottom:2px;user-select:none";
           panel.append(title);
         }
         const mount = document.createElement("div");
@@ -209,20 +218,21 @@
           }),
         });
       });
-      const grip = document.createElement("div");
-      grip.title = "Drag to move the whiteboard";
-      grip.textContent = "⠿ drag to move";
-      grip.style.cssText =
-        "align-self:center;pointer-events:auto;cursor:grab;user-select:none;padding:3px 12px;border-radius:999px;background:#2c2c2acc;color:#fff;font:12px system-ui,sans-serif;touch-action:none";
-      column.prepend(grip);
+      // Keep the board inside the usable screen: clear of the menu bar, Dock and notch the desktop
+      // app reports in `safe`, so its frame (the handle) can never end up somewhere unclickable.
       const place = (left, top) => {
         const width = column.getBoundingClientRect().width;
         const height = column.getBoundingClientRect().height;
-        const x = Math.max(8, Math.min(innerWidth - width - 8, left));
-        const y = Math.max(8, Math.min(innerHeight - height - 8, top));
+        const x = Math.max(8 + safe.left, Math.min(innerWidth - width - 8 - safe.right, left));
+        const y = Math.max(8 + safe.top, Math.min(innerHeight - height - 8 - safe.bottom, top));
         Object.assign(column.style, { left: `${x}px`, top: `${y}px`, right: "auto", bottom: "auto", width: `${width}px`, height: `${height}px` });
         return { x, y };
       };
+      addEventListener("resize", () => {
+        if (!columnMoved || column.style.display === "none") return;
+        const r = column.getBoundingClientRect();
+        place(r.left, r.top);
+      });
       try {
         const saved = JSON.parse(sessionStorage.getItem("sketchBoardPos") || "null");
         const size = JSON.parse(sessionStorage.getItem("sketchBoardSize") || "null");
@@ -249,7 +259,7 @@
         const start = column.getBoundingClientRect();
         place(start.left, start.top);
         const move = (ev) => {
-          const w = Math.max(280, Math.min(innerWidth - start.left - 8, start.width + ev.clientX - e.clientX));
+          const w = Math.max(280, Math.min(innerWidth - start.left - 8 - safe.right, start.width + ev.clientX - e.clientX));
           const h = Math.max(200, Math.min(innerHeight - start.top - 8 - safe.bottom, start.height + ev.clientY - e.clientY));
           Object.assign(column.style, { width: `${w}px`, height: `${h}px` });
         };
@@ -264,36 +274,58 @@
         sizer.addEventListener("pointermove", move);
         sizer.addEventListener("pointerup", up);
       });
-      grip.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        grip.setPointerCapture(e.pointerId);
-        grip.style.cursor = "grabbing";
-        columnMoved = true;
-        const start = column.getBoundingClientRect();
-        const dx = e.clientX - start.left;
-        const dy = e.clientY - start.top;
-        const move = (ev) => place(ev.clientX - dx, ev.clientY - dy);
-        const up = (ev) => {
-          grip.style.cursor = "grab";
-          grip.removeEventListener("pointermove", move);
-          grip.removeEventListener("pointerup", up);
-          const at = place(ev.clientX - dx, ev.clientY - dy);
+      // The board is grabbed by its frame: any edge (top, bottom, left, right), the title, or the
+      // padding around the drawing. The drawing itself stays free for the lesson's own pointer use.
+      const EDGE = 14;
+      const onHandle = (panel, e) => {
+        if (e.target.closest("button")) return false;
+        if (e.target === panel || e.target.closest("[data-sketch-handle]")) return true;
+        const r = panel.getBoundingClientRect();
+        return e.clientX - r.left < EDGE || r.right - e.clientX < EDGE || e.clientY - r.top < EDGE || r.bottom - e.clientY < EDGE;
+      };
+      let dragging = false;
+      panels.forEach((panel) => {
+        panel.addEventListener("pointermove", (e) => {
+          if (!dragging) panel.style.cursor = onHandle(panel, e) ? "grab" : "";
+        });
+        panel.addEventListener("pointerdown", (e) => {
+          if (e.button !== 0 || !onHandle(panel, e)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          panel.setPointerCapture(e.pointerId);
+          dragging = true;
+          panel.style.cursor = "grabbing";
+          columnMoved = true;
+          const start = column.getBoundingClientRect();
+          const dx = e.clientX - start.left;
+          const dy = e.clientY - start.top;
+          const move = (ev) => place(ev.clientX - dx, ev.clientY - dy);
+          const up = (ev) => {
+            dragging = false;
+            panel.style.cursor = "grab";
+            panel.removeEventListener("pointermove", move);
+            panel.removeEventListener("pointerup", up);
+            panel.removeEventListener("pointercancel", up);
+            const at = place(ev.clientX - dx, ev.clientY - dy);
+            try {
+              sessionStorage.setItem("sketchBoardPos", JSON.stringify(at));
+            } catch {}
+          };
+          panel.addEventListener("pointermove", move);
+          panel.addEventListener("pointerup", up);
+          panel.addEventListener("pointercancel", up);
+        });
+        // Double-clicking the frame puts the board back where it started.
+        panel.addEventListener("dblclick", (e) => {
+          if (!onHandle(panel, e)) return;
+          columnMoved = false;
+          homeColumn();
+          dodgeBar();
           try {
-            sessionStorage.setItem("sketchBoardPos", JSON.stringify(at));
+            sessionStorage.removeItem("sketchBoardPos");
+            sessionStorage.removeItem("sketchBoardSize");
           } catch {}
-        };
-        grip.addEventListener("pointermove", move);
-        grip.addEventListener("pointerup", up);
-      });
-      grip.addEventListener("dblclick", () => {
-        columnMoved = false;
-        homeColumn();
-        dodgeBar();
-        try {
-          sessionStorage.removeItem("sketchBoardPos");
-          sessionStorage.removeItem("sketchBoardSize");
-        } catch {}
+        });
       });
       root.append(column);
     }
@@ -522,7 +554,7 @@
         const dy = e.clientY - r.top;
         const move = (ev) => {
           el.style.left = `${Math.max(-w / 2, Math.min(innerWidth - w / 2, ev.clientX - dx))}px`;
-          el.style.top = `${Math.max(safe.top, Math.min(innerHeight - h / 2, ev.clientY - dy))}px`;
+          el.style.top = `${Math.max(safe.top + 16, Math.min(innerHeight - h / 2, ev.clientY - dy))}px`;
         };
         const up = () => {
           grab.removeEventListener("pointermove", move);
