@@ -417,7 +417,9 @@
     const extra = document.createElement("div");
     extra.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
     const controls = document.createElement("div");
-    controls.style.cssText = "display:flex;align-items:center;gap:4px;flex-wrap:nowrap";
+    // Playback keeps words; the rarer tools (replay, sound, video) are icons with tooltips so the row
+    // fits the bar, and it wraps instead of spilling out when a label grows ("Saving… 1:23").
+    controls.style.cssText = "display:flex;align-items:center;gap:4px;flex-wrap:wrap";
     const ask = document.createElement("input");
     ask.placeholder = "Ask about this… (Enter to send)";
     ask.style.cssText = "width:100%;min-width:0;font:inherit;padding:6px 12px;border-radius:999px;border:1px solid #fff4;background:#fff1;color:#fff;outline:none;box-sizing:border-box";
@@ -429,7 +431,7 @@
     const back = button("‹ Back", () => go(current - 1));
     const pause = button("Pause", () => togglePause());
     const next = button("Next ›", () => go(current + 1));
-    const replay = button("↺ Replay", () => {
+    const replay = button("↺", () => {
       paused = false;
       pause.textContent = "Pause";
       panels.forEach((p) => (p.style.display = ""));
@@ -457,11 +459,13 @@
     sound.title = "Drawing sounds on or off";
     // Save as video: the helper renders the boards with the voice into ~/Downloads and shows the file.
     const recentId = /^\/recent\/(\d+)\//.exec(lesson.assetBase || "")?.[1];
+    const VIDEO_TITLE = "Save this lesson as a video (MP4) in your Downloads folder";
     const videoUrl = `${BASE}/lesson/video${q}${recentId ? `&recent=${recentId}` : ""}`;
     let videoPoll = 0;
     const showVideo = (job) => {
       if (!job || job.state === "idle" || job.state === "none") {
-        video.textContent = "⬇ Video";
+        video.textContent = "⬇";
+        video.title = VIDEO_TITLE;
         video.disabled = false;
         return false;
       }
@@ -490,7 +494,7 @@
         })
         .catch(() => showVideo({ state: "failed", error: "Chalktalk is off" }));
     };
-    const video = button("⬇ Video", () => {
+    const video = button("⬇", () => {
       video.disabled = true;
       video.textContent = "Saving…";
       fetch(videoUrl, { method: "POST", headers: { "Content-Type": "text/plain" }, body: "{}" })
@@ -500,7 +504,8 @@
         })
         .catch(() => showVideo({ state: "failed", error: "Chalktalk is off" }));
     });
-    video.title = "Save this lesson as a video (MP4) in your Downloads folder";
+    video.title = VIDEO_TITLE;
+    replay.title = "Replay from the start";
     [back, pause, next, replay, clear, sound, video].forEach((b) => (b.style.padding = "3px 9px"));
     top.append(light, line, extra);
     controls.append(back, pause, next, replay, clear, sound, video);
