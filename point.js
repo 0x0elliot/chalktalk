@@ -254,7 +254,8 @@
     const place = (x, y) => {
       const r = box.getBoundingClientRect();
       const left = Math.min(Math.max(8, x), innerWidth - Math.min(r.width, innerWidth - 16) - 8);
-      const top = Math.min(Math.max(8, y), innerHeight - 40);
+      const safeTop = (window.__chalktalkSafe && window.__chalktalkSafe.top) || 0;
+      const top = Math.min(Math.max(8 + safeTop, y), innerHeight - 40);
       Object.assign(box.style, { left: `${left}px`, top: `${top}px`, right: "auto", bottom: "auto", transform: "none" });
       return { x: Math.round(left), y: Math.round(top) };
     };

@@ -136,7 +136,8 @@ XWayland.
    comes from `--as`, so it says "DeepSeek V4.1 Flash is thinking" or "Claude is thinking"). The
    explanation then plays where you asked, with Back, Pause, Next, Replay, Clear, Close all, and an Ask
    box for follow-ups. Drawings fade a few seconds after it ends. Every box can be dragged by its
-   "⠿ drag to move" grip (double-click puts it back) and closed with its ✕.
+   "⠿ drag to move" grip, and the whiteboard by any edge of its frame (double-click puts it back);
+   each closes with its ✕.
 
 Clicking Chalktalk on a page you asked about before offers **Replay** for recent answers, instantly.
 
